@@ -86,21 +86,78 @@ def _make_single_antivortex_field(L: int = 32) -> np.ndarray:
     return -_make_single_vortex_field(L)
 
 
-def _central_defects(
-    tokens: list[dict], L: int, charge: int, radius: float = 4.0
-) -> list[dict]:
-    """Filter tokens to those near the lattice centre with the given charge.
+# ---------------------------------------------------------------------------
+# Central Defect Detection Gate (official gate rule for §1.1 / §1.2)
+# ---------------------------------------------------------------------------
+# On a PBC torus the net Pontryagin charge is always zero, so any single-
+# vortex arctan2 field also generates boundary-image anti-defects to
+# compensate.  The gate therefore checks the *central* defect only:
+#
+#   Gate rule: within radius=4.0 lattice units of (L/2, L/2)
+#              exactly ONE defect of the expected charge must exist,
+#              its position must be within 1.5 units of (L/2, L/2),
+#              and its strength must lie in [0.9, 1.1].
+# ---------------------------------------------------------------------------
 
-    On a PBC lattice, the branch cut of an arctan2 vortex field produces
-    boundary-image defects.  This helper isolates the intended central
-    defect for the SPEC_VALIDATION §1 assertions.
+GATE_RADIUS: float = 4.0       # search radius for central defect (lattice units)
+GATE_POS_TOL: float = 1.5      # max |x - L/2| and |y - L/2| (lattice units)
+GATE_STR_LO: float = 0.9       # minimum accepted vortex strength
+GATE_STR_HI: float = 1.1       # maximum accepted vortex strength
+
+
+def _gate_central_defect(
+    tokens: list[dict],
+    L: int,
+    charge: int,
+    *,
+    radius: float = GATE_RADIUS,
+    pos_tol: float = GATE_POS_TOL,
+    str_lo: float = GATE_STR_LO,
+    str_hi: float = GATE_STR_HI,
+) -> dict:
+    """Central Defect Detection Gate.
+
+    Asserts that exactly one token with the given *charge* exists within
+    *radius* lattice units of the lattice centre (L/2, L/2), that its
+    position is within *pos_tol* of (L/2, L/2) on both axes, and that
+    its winding-number strength is within [str_lo, str_hi].
+
+    Returns the single matching vortex token on success; raises
+    AssertionError with a diagnostic message on any failure.
+
+    Gate parameters (defaults match SPEC_VALIDATION §1):
+        radius  = 4.0  lattice units   (search window around centre)
+        pos_tol = 1.5  lattice units   (max allowed offset from L/2)
+        str_lo  = 0.9, str_hi = 1.1   (strength ≈ 1 for clean vortex)
     """
     cx, cy = L / 2, L / 2
-    return [
+    candidates = [
         t for t in tokens
         if t["vortex"]["charge"] == charge
         and math.hypot(t["vortex"]["x"] - cx, t["vortex"]["y"] - cy) < radius
     ]
+    all_summary = [
+        (t["vortex"]["charge"], t["vortex"]["x"], t["vortex"]["y"])
+        for t in tokens
+    ]
+    assert len(candidates) == 1, (
+        f"Central Defect Gate: expected exactly 1 defect with charge={charge:+d} "
+        f"within radius={radius} of ({cx},{cy}); "
+        f"found {len(candidates)}.  All tokens={all_summary}"
+    )
+    tok = candidates[0]
+    v = tok["vortex"]
+    assert abs(v["x"] - cx) <= pos_tol, (
+        f"Central Defect Gate: x={v['x']:.2f} not within {pos_tol} of {cx}"
+    )
+    assert abs(v["y"] - cy) <= pos_tol, (
+        f"Central Defect Gate: y={v['y']:.2f} not within {pos_tol} of {cy}"
+    )
+    assert str_lo <= v["strength"] <= str_hi, (
+        f"Central Defect Gate: strength={v['strength']:.4f} not in "
+        f"[{str_lo}, {str_hi}]"
+    )
+    return tok
 
 
 def _make_bound_pair_field(L: int = 32, d: float = 4.0) -> np.ndarray:
@@ -125,56 +182,28 @@ def _make_bound_pair_field(L: int = 32, d: float = 4.0) -> np.ndarray:
 class TestSingleVortex:
     """SPEC_VALIDATION §1.1 — Single vortex field.
 
-    On a PBC lattice the net Pontryagin charge is zero, so the arctan2
-    single-vortex field also generates boundary-image antivortices to
-    compensate.  The spec's assertion "exactly 1 vortex, charge=+1,
-    position ≈ (L/2, L/2)" refers to the *central* defect, which our
-    extractor must detect correctly.
+    Gate rule (Central Defect Detection Gate):
+      - Exactly ONE token with charge=+1 within radius=4.0 of (L/2, L/2).
+      - Its position must be within 1.5 lattice units of (L/2, L/2).
+      - Its strength must be in [0.9, 1.1] (well-resolved winding ≈ 1).
+
+    Note on PBC topology: on a flat torus the net Pontryagin charge is
+    always zero, so the arctan2 single-vortex field generates boundary-image
+    antivortices to compensate.  The gate checks the *central* defect only.
     """
 
-    def test_central_vortex_found(self):
-        """Exactly one +1 defect must exist near the lattice centre."""
+    def test_central_vortex_gate(self):
+        """Central Defect Detection Gate: charge=+1, pos within 1.5, strength in [0.9,1.1]."""
         L = 32
         theta = _make_single_vortex_field(L)
         tokens = extract_vortices(theta, _prov(L=L))
-        central = _central_defects(tokens, L, charge=+1, radius=4.0)
-        assert len(central) == 1, (
-            f"Expected exactly 1 central vortex (charge=+1), "
-            f"found {len(central)}.  All tokens: "
-            + str([(t['vortex']['charge'], t['vortex']['x'], t['vortex']['y'])
-                   for t in tokens])
-        )
-
-    def test_central_charge_is_positive(self):
-        L = 32
-        theta = _make_single_vortex_field(L)
-        tokens = extract_vortices(theta, _prov(L=L))
-        central = _central_defects(tokens, L, charge=+1, radius=4.0)
-        assert central[0]["vortex"]["charge"] == +1
-
-    def test_position_near_centre(self):
-        L = 32
-        theta = _make_single_vortex_field(L)
-        tokens = extract_vortices(theta, _prov(L=L))
-        central = _central_defects(tokens, L, charge=+1, radius=4.0)
-        assert len(central) >= 1
-        v = central[0]["vortex"]
-        # Position should be within 1 plaquette of the centre
-        assert abs(v["x"] - L / 2) <= 1.5, f"x={v['x']} not near {L/2}"
-        assert abs(v["y"] - L / 2) <= 1.5, f"y={v['y']} not near {L/2}"
+        # _gate_central_defect raises AssertionError with diagnostics on any failure.
+        _gate_central_defect(tokens, L, charge=+1)
 
     def test_schema_valid(self):
         theta = _make_single_vortex_field(32)
         tokens = extract_vortices(theta, _prov())
         _validate_tokens(tokens)
-
-    def test_strength_near_one(self):
-        L = 32
-        theta = _make_single_vortex_field(L)
-        tokens = extract_vortices(theta, _prov(L=L))
-        central = _central_defects(tokens, L, charge=+1, radius=4.0)
-        assert len(central) >= 1
-        assert 0.9 <= central[0]["vortex"]["strength"] <= 1.1
 
 
 # ---------------------------------------------------------------------------
@@ -184,22 +213,21 @@ class TestSingleVortex:
 class TestSingleAntivortex:
     """SPEC_VALIDATION §1.2 — Single antivortex field.
 
-    Mirror of §1.1: checks the central antivortex is found with charge=-1.
+    Gate rule (Central Defect Detection Gate, mirrored from §1.1):
+      - Exactly ONE token with charge=-1 within radius=4.0 of (L/2, L/2).
+      - Its position must be within 1.5 lattice units of (L/2, L/2).
+      - Its strength must be in [0.9, 1.1].
+
+    Same PBC caveat as §1.1: boundary-image vortices are present but
+    irrelevant; the gate checks the central defect only.
     """
 
-    def test_central_antivortex_found(self):
-        """Exactly one -1 defect must exist near the lattice centre."""
+    def test_central_antivortex_gate(self):
+        """Central Defect Detection Gate: charge=-1, pos within 1.5, strength in [0.9,1.1]."""
         L = 32
         theta = _make_single_antivortex_field(L)
         tokens = extract_vortices(theta, _prov(L=L))
-        central = _central_defects(tokens, L, charge=-1, radius=4.0)
-        assert len(central) == 1, (
-            f"Expected exactly 1 central antivortex (charge=-1), "
-            f"found {len(central)}.  All tokens: "
-            + str([(t['vortex']['charge'], t['vortex']['x'], t['vortex']['y'])
-                   for t in tokens])
-        )
-        assert central[0]["vortex"]["charge"] == -1
+        _gate_central_defect(tokens, L, charge=-1)
 
     def test_schema_valid(self):
         theta = _make_single_antivortex_field(32)
@@ -270,6 +298,53 @@ class TestUniformField:
         theta = np.zeros((32, 32), dtype=np.float64)
         tokens = extract_vortices(theta, _prov())
         assert tokens == []
+
+
+# ---------------------------------------------------------------------------
+# High-temperature (random field) sanity check
+# ---------------------------------------------------------------------------
+
+class TestRandomField:
+    """Sanity checks on a fully disordered (high-T) angle field.
+
+    SPEC_VALIDATION §2.1: random iid θ ~ Uniform[-π, π) on an L=32 lattice
+    should yield vortex density ≈ 0.5, i.e. roughly L²/2 ≈ 512 vortices.
+    We do NOT require an exact count — we only assert the extractor is not
+    broken by checking two weak bounds:
+      1. At least one token is produced (not suspiciously empty).
+      2. All produced tokens validate against the schema.
+    """
+
+    def test_not_empty_for_hot_field(self):
+        """A fully random angle field must produce at least one vortex token."""
+        rng = np.random.default_rng(seed=42)
+        L = 32
+        theta = rng.uniform(-math.pi, math.pi, size=(L, L))
+        tokens = extract_vortices(theta, _prov(L=L, T=5.0))
+        assert len(tokens) > 0, (
+            "Expected at least one vortex token for a hot random field; "
+            f"got {len(tokens)}.  This indicates the extractor is broken."
+        )
+
+    def test_hot_field_schema_valid(self):
+        """All tokens from a random field must pass schema validation."""
+        rng = np.random.default_rng(seed=43)
+        L = 32
+        theta = rng.uniform(-math.pi, math.pi, size=(L, L))
+        tokens = extract_vortices(theta, _prov(L=L, T=5.0))
+        _validate_tokens(tokens)
+
+    def test_hot_field_density_plausible(self):
+        """Vortex density for hot random field should be in rough range [0.3, 0.7]."""
+        rng = np.random.default_rng(seed=44)
+        L = 32
+        theta = rng.uniform(-math.pi, math.pi, size=(L, L))
+        tokens = extract_vortices(theta, _prov(L=L, T=5.0))
+        rho = len(tokens) / (L * L)
+        assert 0.3 <= rho <= 0.7, (
+            f"Hot-field vortex density rho={rho:.3f} outside expected [0.3, 0.7]; "
+            "check extractor logic."
+        )
 
 
 # ---------------------------------------------------------------------------

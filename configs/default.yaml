@@ -1,0 +1,11 @@
+schema_version: "1.0.0"
+models: ["XY", "clock6"]
+L_values: [16, 32, 64]
+T_range: {start: 0.5, stop: 1.5, n_points: 25}
+seeds: [42, 43, 44, 45]
+N_equil: 10000
+N_meas: 50000
+N_thin: 50
+r_max_policy: "L/4"
+output_dir: "results/"
+figures_dir: "figures/"

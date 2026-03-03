@@ -15,7 +15,6 @@ No other wrapping operator is permitted anywhere in this module.
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
 import numpy as np
@@ -106,6 +105,8 @@ def extract_vortices(theta: np.ndarray, provenance: dict[str, Any]) -> list[dict
                 charge=charge,
                 strength=abs(W_raw),
                 provenance=provenance,
+                row=i,
+                col=j,
             )
             tokens.append(token)
 
@@ -164,14 +165,20 @@ def _make_vortex_token(
     charge: int,
     strength: float,
     provenance: dict[str, Any],
+    row: int = 0,
+    col: int = 0,
 ) -> dict:
     """Build a schema-compliant vortex token.
 
     ``confidence`` defaults to 1.0 for single-run extraction; callers that
     aggregate over multiple seeds should overwrite this field with the value
     computed per SPEC_UQ §3.
+
+    IDs are deterministic based on charge sign and plaquette position
+    (required by 00_repo_rules.md REPRODUCIBILITY RULES).
     """
-    vortex_id = f"v_{uuid.uuid4().hex[:12]}"
+    sign_char = "p" if charge > 0 else "m"
+    vortex_id = f"v_{sign_char}_r{row:03d}_c{col:03d}"
     return {
         "schema_version": "1.0.0",
         "token_type": "vortex",

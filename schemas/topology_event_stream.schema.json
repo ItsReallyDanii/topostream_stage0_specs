@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "topology_event_stream.schema.json",
+  "title": "Topology Event Stream",
+  "description": "Standardized schema for vortex, pair, and sweep-delta tokens.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "token_type",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "token_type": {
+      "type": "string",
+      "enum": [
+        "vortex",
+        "pair",
+        "sweep_delta"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "model",
+        "L",
+        "T",
+        "seed",
+        "sweep_index",
+        "schema_version"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": [
+            "XY",
+            "clock6",
+            "map_mode"
+          ]
+        },
+        "L": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "T": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "sweep_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "N_equil": {
+          "type": "integer"
+        },
+        "N_meas": {
+          "type": "integer"
+        },
+        "N_thin": {
+          "type": "integer"
+        },
+        "r_max_policy": {
+          "type": "string"
+        },
+        "preprocessing_params": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "type": "string"
+        }
+      }
+    },
+    "vortex": {
+      "type": "object",
+      "required": [
+        "id",
+        "x",
+        "y",
+        "charge",
+        "strength",
+        "confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "charge": {
+          "type": "integer",
+          "enum": [
+            -1,
+            1
+          ]
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.5,
+          "description": "abs(winding_number); ~1.0 for well-resolved vortex"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Detection stability per SPEC_UQ section 3"
+        }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "required": [
+        "pair_id",
+        "vortex_id",
+        "antivortex_id",
+        "separation_r",
+        "r_max_used"
+      ],
+      "properties": {
+        "pair_id": {
+          "type": "string"
+        },
+        "vortex_id": {
+          "type": "string"
+        },
+        "antivortex_id": {
+          "type": "string"
+        },
+        "separation_r": {
+          "type": "number",
+          "minimum": 0.0
+        },
+        "r_max_used": {
+          "type": "number",
+          "minimum": 0.0
+        }
+      }
+    },
+    "sweep_delta": {
+      "type": "object",
+      "description": "Token derived from consecutive temperature snapshots. NOT physical time dynamics.",
+      "required": [
+        "delta_type",
+        "T_from",
+        "T_to",
+        "delta_value"
+      ],
+      "properties": {
+        "delta_type": {
+          "type": "string",
+          "enum": [
+            "vortex_density_change",
+            "pairing_fraction_change",
+            "pair_count_change",
+            "free_vortex_count_change",
+            "psi6_change"
+          ]
+        },
+        "T_from": {
+          "type": "number"
+        },
+        "T_to": {
+          "type": "number"
+        },
+        "delta_value": {
+          "type": "number"
+        },
+        "regime_label": {
+          "type": "string",
+          "enum": [
+            "disordered",
+            "QLRO",
+            "clock_ordered",
+            "unknown"
+          ],
+          "description": "Regime label for T_to snapshot"
+        }
+      }
+    }
+  }
+}

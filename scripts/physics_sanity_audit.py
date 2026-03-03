@@ -255,5 +255,79 @@ def _report(label: str, ok: bool) -> None:
     print(f"  {tag}  {label}")
 
 
+# ---------------------------------------------------------------------------
+# Map-mode synthetic diagnostics block
+# ---------------------------------------------------------------------------
+
+def _run_map_mode_diagnostics() -> None:
+    """Optional map-mode synthetic block (Stage 3 groundwork).
+
+    For each model, runs the forward-model pipeline at several degradation
+    levels and prints: baseline vortex count, recovered vortex count, and
+    fraction of NaN plaquettes skipped by the extractor.
+    """
+    import math as _math
+    from topostream.simulate.xy_numba import init_config as _init_xy
+    from topostream.simulate.clock6_numba import init_config_clock6 as _init_c6
+    from topostream.map.forward_models import (
+        to_vector_map, apply_blur, add_noise, mask_nan,
+    )
+    from topostream.map.adapters import vector_map_to_theta
+
+    print("\n--- Map-mode synthetic diagnostics ---")
+    _L = 16
+    _SEED = 42
+    _prov = lambda m: {"model": m, "L": _L, "T": 1.0, "seed": _SEED,
+                        "sweep_index": 0, "schema_version": "1.0.0"}
+
+    profiles = [
+        ("clean",        dict(blur=0.0, noise=0.00, nan_f=0.00)),
+        ("mild blur",    dict(blur=0.5, noise=0.00, nan_f=0.00)),
+        ("mild noise",   dict(blur=0.0, noise=0.05, nan_f=0.00)),
+        ("5% NaN",       dict(blur=0.0, noise=0.00, nan_f=0.05)),
+        ("combined",     dict(blur=0.5, noise=0.05, nan_f=0.05)),
+        ("extreme NaN",  dict(blur=0.0, noise=0.00, nan_f=0.70)),
+    ]
+
+    for model in ("XY", "clock6"):
+        theta0 = _init_xy(_L, _SEED) if model == "XY" else _init_c6(_L, _SEED)
+        n_base = len(extract_vortices(theta0, _prov(model)))
+        print(f"\n  {model}  L={_L}  baseline_vortices={n_base}")
+        print(f"  {'Degradation':<14s}  {'recovered':>9s}  {'nan_plaq%':>9s}  {'Δ':>6s}")
+        print("  " + "-" * 45)
+
+        for label, cfg in profiles:
+            Mx, My = to_vector_map(theta0)
+            if cfg["blur"] > 0:
+                Mx = apply_blur(Mx, sigma=cfg["blur"])
+                My = apply_blur(My, sigma=cfg["blur"])
+            if cfg["noise"] > 0:
+                Mx = add_noise(Mx, sigma=cfg["noise"], seed=_SEED)
+                My = add_noise(My, sigma=cfg["noise"], seed=_SEED + 1)
+            if cfg["nan_f"] > 0:
+                Mx = mask_nan(Mx, nan_frac=cfg["nan_f"], seed=_SEED + 2)
+                My = mask_nan(My, nan_frac=cfg["nan_f"], seed=_SEED + 3)
+
+            theta_hat = vector_map_to_theta(Mx, My)
+
+            # Count NaN plaquettes
+            nan_plaq = 0
+            for i in range(_L):
+                for j in range(_L):
+                    corners = [theta_hat[i, j],
+                               theta_hat[i, (j + 1) % _L],
+                               theta_hat[(i + 1) % _L, (j + 1) % _L],
+                               theta_hat[(i + 1) % _L, j]]
+                    if any(_math.isnan(c) for c in corners):
+                        nan_plaq += 1
+
+            n_rec = len(extract_vortices(theta_hat, _prov(model)))
+            nan_pct = 100.0 * nan_plaq / (_L * _L)
+            delta = n_rec - n_base
+            delta_str = f"{delta:+d}" if n_base > 0 else "n/a"
+            print(f"  {label:<14s}  {n_rec:>9d}  {nan_pct:>8.1f}%  {delta_str:>6s}")
+
+
 if __name__ == "__main__":
     main()
+    _run_map_mode_diagnostics()

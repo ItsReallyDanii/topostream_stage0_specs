@@ -88,6 +88,71 @@ def compute_angle_histogram(
     return (bin_centers.astype(np.float64), counts.astype(np.int64))
 
 
+def compute_clock6_order(theta: np.ndarray) -> float:
+    """Population-concentration order parameter for the q=6 clock model.
+
+    Counts the fraction of spins in each of the 6 canonical clock states
+    (k × π/3 for k = 0..5, normalised via arctan2 wrapping) and returns
+    the maximum fraction:
+
+        p_k   = fraction of spins whose angle matches state k (within tol)
+        clock6_order = max_k p_k
+
+    Range and interpretation:
+        → 1.0  : all spins in a single clock state (perfect single-domain order)
+        → 1/6 ≈ 0.1667 : uniform population across all 6 states (fully disordered)
+
+    This metric meaningfully discriminates temperature for the clock6 simulator
+    (unlike |ψ₆|, which equals 1 for every discrete clock config by algebra).
+
+    Parameters
+    ----------
+    theta : np.ndarray
+        Shape ``(L, L)`` angle field, float64, radians.  Values should be
+        elements of the 6-state allowed set produced by clock6 simulator,
+        but the function tolerates arbitrary continuous angles by snapping
+        each site to its nearest clock state.
+
+    Returns
+    -------
+    float
+        Scalar in [1/6, 1.0] (for a non-empty array with at least one state
+        present).
+
+    Raises
+    ------
+    ValueError
+        If ``theta`` is not a 2-D square array.
+    """
+    theta = np.asarray(theta, dtype=np.float64)
+    if theta.ndim != 2 or theta.shape[0] != theta.shape[1]:
+        raise ValueError(f"theta must be (L, L); got {theta.shape}")
+
+    # 6 canonical clock states, wrapped into (−π, π]
+    _allowed = np.array(
+        [np.arctan2(np.sin(k * np.pi / 3.0), np.cos(k * np.pi / 3.0))
+         for k in range(6)],
+        dtype=np.float64,
+    )
+
+    flat = theta.ravel()
+    n = len(flat)
+    if n == 0:
+        return 0.0
+
+    # For each site, find the nearest clock state (by angular distance)
+    # Shape: (n_sites, 6)
+    diffs = np.abs(np.arctan2(
+        np.sin(flat[:, np.newaxis] - _allowed[np.newaxis, :]),
+        np.cos(flat[:, np.newaxis] - _allowed[np.newaxis, :]),
+    ))
+    nearest = np.argmin(diffs, axis=1)   # index of nearest clock state per site
+
+    # Count population per state and return maximum fraction
+    counts = np.bincount(nearest, minlength=6)
+    return float(np.max(counts)) / n
+
+
 def label_regime(
     T: float,
     T1: Optional[float] = None,

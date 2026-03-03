@@ -30,7 +30,7 @@ import numpy as np
 from topostream.simulate.xy_numba import run_xy
 from topostream.simulate.clock6_numba import run_clock6
 from topostream.metrics.helicity import compute_helicity
-from topostream.metrics.clock import compute_psi6
+from topostream.metrics.clock import compute_psi6, compute_clock6_order
 from topostream.extract.vortices import extract_vortices
 
 logging.basicConfig(
@@ -125,6 +125,9 @@ def _diagnose_single(
     helicity_err = result["helicity_err"]
     psi6_mag = float(abs(compute_psi6(cfg)))
 
+    # --- Clock6 population-concentration order (meaningful for discrete models) ---
+    clock6_order = float(compute_clock6_order(cfg))
+
     # --- Vortex density ---
     prov = {"model": model, "L": L, "T": T, "seed": seed,
             "sweep_index": 0, "schema_version": "1.0.0"}
@@ -147,6 +150,7 @@ def _diagnose_single(
         "n_vortices": n_vortices,
         "vortex_density_rho": rho,
         "acceptance_rate_proxy": accept_rate,
+        "clock6_order": clock6_order,
         "energy_std": float(np.std(energy_trace)),
         "N_equil": N_EQUIL,
         "N_meas": N_MEAS,
@@ -171,8 +175,8 @@ def audit_model(model: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 def _print_table(model: str, rows: list[dict]) -> None:
     header = (
-        f"{'T':>5s}  {'E/spin':>9s}  {'Υ':>9s}  {'|ψ₆|':>7s}  "
-        f"{'ρ':>8s}  {'n_vort':>6s}  {'accept':>7s}  {'E_std':>8s}"
+        f"{'T':>5s}  {'E/spin':>9s}  {'\u03a5':>9s}  {'|\u03c8\u2086|':>7s}  "
+        f"{'\u03c1':>8s}  {'n_vort':>6s}  {'accept':>7s}  {'c6_ord':>7s}  {'E_std':>8s}"
     )
     print(f"\n===== {model}  L={rows[0]['L']}  seed={rows[0]['seed']}  "
           f"N_eq={N_EQUIL} N_m={N_MEAS} =====")
@@ -183,7 +187,8 @@ def _print_table(model: str, rows: list[dict]) -> None:
             f"{r['T']:5.2f}  {r['mean_energy_per_spin']:9.4f}  "
             f"{r['helicity']:9.4f}  {r['psi6_mag']:7.4f}  "
             f"{r['vortex_density_rho']:8.5f}  {r['n_vortices']:6d}  "
-            f"{r['acceptance_rate_proxy']:7.4f}  {r['energy_std']:8.5f}"
+            f"{r['acceptance_rate_proxy']:7.4f}  {r['clock6_order']:7.4f}  "
+            f"{r['energy_std']:8.5f}"
         )
 
 

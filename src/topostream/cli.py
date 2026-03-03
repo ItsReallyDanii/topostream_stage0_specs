@@ -99,21 +99,30 @@ def _run_single_sweep(
     config: dict | None = None,
 ) -> list[dict]:
     """Run simulation → extraction → pairing → emit tokens for one (L,T,seed)."""
-    from topostream.simulate.xy_numba import run_xy
     from topostream.extract.vortices import extract_vortices
     from topostream.extract.pairing import pair_vortices
-    from topostream.metrics.helicity import compute_helicity
     from topostream.metrics.clock import compute_psi6
     from topostream.io.schema_validate import validate_token
 
     logger.info("sweep: model=%s L=%d T=%.4f seed=%d", model, L, T, seed)
 
-    # 1. Simulate
-    result = run_xy(
-        L=L, T=T, J=1.0,
-        N_equil=N_equil, N_meas=N_meas, N_thin=N_thin,
-        seed=seed,
-    )
+    # 1. Simulate — dispatch on model
+    if model == "XY":
+        from topostream.simulate.xy_numba import run_xy
+        result = run_xy(
+            L=L, T=T, J=1.0,
+            N_equil=N_equil, N_meas=N_meas, N_thin=N_thin,
+            seed=seed,
+        )
+    elif model == "clock6":
+        from topostream.simulate.clock6_numba import run_clock6
+        result = run_clock6(
+            L=L, T=T, J=1.0,
+            N_equil=N_equil, N_meas=N_meas, N_thin=N_thin,
+            seed=seed,
+        )
+    else:
+        raise ValueError(f"Unknown model: {model!r}. Supported: 'XY', 'clock6'.")
     cfg = result["configs"][-1]  # Last thinned config
 
     # Save spin config as .npy (SPEC_INPUTS §3)
@@ -220,9 +229,6 @@ def cmd_reproduce(args: argparse.Namespace) -> None:
     prev_state: dict[str, dict] = {}
 
     for model in models:
-        if model == "clock6":
-            logger.warning("clock6 model not yet implemented; skipping.")
-            continue
         for L in L_values:
             r_max = _parse_r_max(r_max_policy, L)
             for seed in seeds:

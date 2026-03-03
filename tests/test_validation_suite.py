@@ -56,7 +56,7 @@ def _validate(token: dict) -> None:
 def _prov(L: int = 32, T: float = 0.5, seed: int = 42, sweep_index: int = 0) -> dict:
     return {
         "model": "XY", "L": L, "T": T, "seed": seed,
-        "sweep_index": sweep_index, "schema_version": "1.0.0",
+        "sweep_index": sweep_index, "schema_version": "1.1.0",
     }
 
 
@@ -190,7 +190,7 @@ class TestNullTests:
 
         def _tok(vid, x, y, charge):
             return {
-                "schema_version": "1.0.0", "token_type": "vortex",
+                "schema_version": "1.1.0", "token_type": "vortex",
                 "provenance": prov,
                 "vortex": {"id": vid, "x": x, "y": y, "charge": charge,
                            "strength": 1.0, "confidence": 1.0},

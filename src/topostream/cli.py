@@ -72,7 +72,7 @@ def _make_provenance(
         "T": T,
         "seed": seed,
         "sweep_index": sweep_index,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
     if config:
         for k in ("N_equil", "N_meas", "N_thin", "r_max_policy"):
@@ -445,7 +445,7 @@ def _make_sweep_deltas(
     deltas: list[dict] = []
     for delta_type, delta_value in delta_specs:
         tok = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "sweep_delta",
             "provenance": provenance,
             "sweep_delta": {

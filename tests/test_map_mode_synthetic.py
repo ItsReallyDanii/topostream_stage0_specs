@@ -53,7 +53,7 @@ L = 16   # small, fast; still ≥ 8 (vortex extractor minimum)
 
 def _prov(model: str, L: int = L, T: float = 1.0) -> dict:
     return {"model": model, "L": L, "T": T, "seed": 42,
-            "sweep_index": 0, "schema_version": "1.0.0"}
+            "sweep_index": 0, "schema_version": "1.1.0"}
 
 
 def _xy_theta(seed: int = 42) -> np.ndarray:

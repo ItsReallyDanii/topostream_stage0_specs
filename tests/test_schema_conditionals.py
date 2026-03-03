@@ -25,7 +25,7 @@ def _base_prov() -> dict:
         "T": 1.0,
         "seed": 42,
         "sweep_index": 0,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
 
 
@@ -36,7 +36,7 @@ def _base_prov() -> dict:
 def _invalid_vortex_token() -> dict:
     """token_type='vortex' but the 'vortex' payload key is absent."""
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "vortex",
         "provenance": _base_prov(),
         # 'vortex' key intentionally missing
@@ -46,7 +46,7 @@ def _invalid_vortex_token() -> dict:
 def _invalid_pair_token() -> dict:
     """token_type='pair' but the 'pair' payload key is absent."""
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "pair",
         "provenance": _base_prov(),
         # 'pair' key intentionally missing
@@ -56,7 +56,7 @@ def _invalid_pair_token() -> dict:
 def _invalid_sweep_delta_token() -> dict:
     """token_type='sweep_delta' but the 'sweep_delta' payload key is absent."""
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "sweep_delta",
         "provenance": _base_prov(),
         # 'sweep_delta' key intentionally missing
@@ -98,7 +98,7 @@ class TestSchemaConditionalsPositiveControl:
 
     def test_valid_vortex_token_passes(self):
         token = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "vortex",
             "provenance": _base_prov(),
             "vortex": {
@@ -114,7 +114,7 @@ class TestSchemaConditionalsPositiveControl:
 
     def test_valid_pair_token_passes(self):
         token = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "pair",
             "provenance": _base_prov(),
             "pair": {
@@ -129,7 +129,7 @@ class TestSchemaConditionalsPositiveControl:
 
     def test_valid_sweep_delta_token_passes(self):
         token = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "sweep_delta",
             "provenance": _base_prov(),
             "sweep_delta": {

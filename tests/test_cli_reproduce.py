@@ -54,7 +54,7 @@ def config_path(tmp_path):
     """Write a minimal test config and return its path."""
     import yaml
     cfg = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "models": ["XY"],
         "L_values": [8],
         "T_range": {"start": 0.5, "stop": 1.5, "n_points": 3},
@@ -80,7 +80,7 @@ class TestConfig:
     def test_load_default_config(self):
         """configs/default.yaml loads without error."""
         cfg = _load_config("configs/default.yaml")
-        assert cfg["schema_version"] == "1.0.0"
+        assert cfg["schema_version"] == "1.1.0"
         assert "L_values" in cfg
         assert "T_range" in cfg
 
@@ -165,11 +165,11 @@ class TestSingleSweep:
 class TestSchemaValidateHelper:
     def test_valid_vortex_token(self):
         tok = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "vortex",
             "provenance": {
                 "model": "XY", "L": 16, "T": 0.5,
-                "seed": 42, "sweep_index": 0, "schema_version": "1.0.0",
+                "seed": 42, "sweep_index": 0, "schema_version": "1.1.0",
             },
             "vortex": {
                 "id": "v_0", "x": 5.0, "y": 5.0,
@@ -185,11 +185,11 @@ class TestSchemaValidateHelper:
 
     def test_validate_tokens_returns_errors(self):
         good = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "vortex",
             "provenance": {
                 "model": "XY", "L": 16, "T": 0.5,
-                "seed": 42, "sweep_index": 0, "schema_version": "1.0.0",
+                "seed": 42, "sweep_index": 0, "schema_version": "1.1.0",
             },
             "vortex": {
                 "id": "v_0", "x": 5.0, "y": 5.0,

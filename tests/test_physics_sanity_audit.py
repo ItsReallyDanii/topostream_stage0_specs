@@ -51,7 +51,7 @@ def _quick_diag(model: str, L: int, T: float) -> dict:
 
     cfg = result["configs"][-1]
     prov = {"model": model, "L": L, "T": T, "seed": 42,
-            "sweep_index": 0, "schema_version": "1.0.0"}
+            "sweep_index": 0, "schema_version": "1.1.0"}
     vtokens = extract_vortices(cfg, prov)
 
     return {

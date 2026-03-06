@@ -3,7 +3,7 @@
   "$id": "topology_event_stream.schema.json",
   "title": "Topology Event Stream",
   "description": "Standardized schema for vortex, pair, and sweep-delta tokens.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "object",
   "required": [
     "schema_version",
@@ -191,5 +191,34 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "token_type": { "const": "vortex" } },
+        "required": ["token_type"]
+      },
+      "then": {
+        "required": ["vortex"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "token_type": { "const": "pair" } },
+        "required": ["token_type"]
+      },
+      "then": {
+        "required": ["pair"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "token_type": { "const": "sweep_delta" } },
+        "required": ["token_type"]
+      },
+      "then": {
+        "required": ["sweep_delta"]
+      }
+    }
+  ]
 }

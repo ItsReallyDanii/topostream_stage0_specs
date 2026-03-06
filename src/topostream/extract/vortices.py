@@ -180,7 +180,7 @@ def _make_vortex_token(
     sign_char = "p" if charge > 0 else "m"
     vortex_id = f"v_{sign_char}_r{row:03d}_c{col:03d}"
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "vortex",
         "provenance": provenance,
         "vortex": {

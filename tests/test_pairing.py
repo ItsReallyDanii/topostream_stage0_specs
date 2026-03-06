@@ -46,7 +46,7 @@ def _prov(L: int = 32, T: float = 0.5, seed: int = 42, sweep_index: int = 0) -> 
         "T": T,
         "seed": seed,
         "sweep_index": sweep_index,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
 
 
@@ -59,7 +59,7 @@ def _validate_pair_tokens(tokens: list[dict]) -> None:
 def _make_vortex_token(vid: str, x: float, y: float, charge: int = +1) -> dict:
     """Create a minimal vortex token for pairing tests."""
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "vortex",
         "provenance": _prov(),
         "vortex": {

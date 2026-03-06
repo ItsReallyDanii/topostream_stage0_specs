@@ -36,8 +36,15 @@ logger = logging.getLogger("topostream.cli")
 # ===================================================================
 
 def _load_config(path: str | Path) -> dict[str, Any]:
-    """Load YAML config (uses PyYAML if available, else simple parser)."""
-    import yaml  # type: ignore[import-untyped]
+    """Load YAML config file.  Requires PyYAML (declared in pyproject.toml)."""
+    try:
+        import yaml  # type: ignore[import-untyped]
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit(
+            "ERROR: PyYAML is required for config loading but is not installed.\n"
+            "Install it with:  pip install pyyaml\n"
+            "Or install the full package:  pip install topostream"
+        ) from exc
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -72,7 +79,7 @@ def _make_provenance(
         "T": T,
         "seed": seed,
         "sweep_index": sweep_index,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
     if config:
         for k in ("N_equil", "N_meas", "N_thin", "r_max_policy"):
@@ -101,7 +108,7 @@ def _run_single_sweep(
     """Run simulation → extraction → pairing → emit tokens for one (L,T,seed)."""
     from topostream.extract.vortices import extract_vortices
     from topostream.extract.pairing import pair_vortices
-    from topostream.metrics.clock import compute_psi6
+    from topostream.metrics.clock import compute_psi6, compute_clock6_order
     from topostream.io.schema_validate import validate_token
 
     logger.info("sweep: model=%s L=%d T=%.4f seed=%d", model, L, T, seed)
@@ -163,12 +170,25 @@ def _run_single_sweep(
         for tok in all_tokens:
             f.write(json.dumps(tok, default=_json_default) + "\n")
 
-    # 7. Write summary CSV row data (for metric aggregation)
+    # 7. Write summary JSON (for metric aggregation)
     upsilon = result["helicity"]
     upsilon_err = result["helicity_err"]
     rho = len(vortex_tokens) / (L * L)
     f_paired = pair_result["f_paired"]
     psi6_val = float(abs(compute_psi6(cfg)))
+
+    # Model-aware primary order parameter.
+    # For clock6: clock6_order is the meaningful discriminant; |ψ₆| is
+    # algebraically near-1 for all discrete clock configs and is kept only
+    # as a diagnostic.
+    # For XY: |ψ₆| is a continuous observable and may be used diagnostically;
+    # no single-site order parameter is the standard primary metric here.
+    if model == "clock6":
+        primary_order_name = "clock6_order"
+        primary_order_value = compute_clock6_order(cfg)
+    else:  # XY and any future continuous model
+        primary_order_name = "psi6_mag"
+        primary_order_value = psi6_val
 
     summary = {
         "model": model, "L": L, "T": T, "seed": seed,
@@ -176,15 +196,24 @@ def _run_single_sweep(
         "n_pairs": len(pair_result["pairs"]),
         "rho": rho, "f_paired": f_paired,
         "upsilon": upsilon, "upsilon_err": upsilon_err,
-        "psi6_mag": psi6_val, "r_max_used": r_max,
+        "psi6_mag": psi6_val,           # diagnostic for all models
+        "primary_order_name": primary_order_name,
+        "primary_order_value": primary_order_value,
+        "r_max_used": r_max,
     }
+    # For clock6 also store clock6_order explicitly so it is introspectable
+    # without having to read primary_order_name first.
+    if model == "clock6":
+        summary["clock6_order"] = primary_order_value
+
     summary_file = output_dir / f"summary_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.json"
     with summary_file.open("w") as f:
         json.dump(summary, f, indent=2, default=_json_default)
 
     logger.info(
-        "  → %d vortex tokens, %d pair tokens, Υ=%.4f, |ψ₆|=%.4f",
-        len(vortex_tokens), len(pair_result["pairs"]), upsilon, psi6_val,
+        "  → %d vortex tokens, %d pair tokens, Υ=%.4f, %s=%.4f",
+        len(vortex_tokens), len(pair_result["pairs"]), upsilon,
+        primary_order_name, primary_order_value,
     )
 
     return all_tokens
@@ -267,6 +296,14 @@ def cmd_reproduce(args: argparse.Namespace) -> None:
 
     logger.info("reproduce complete: %d total tokens emitted.", len(all_tokens))
 
+    # --- Run multi-seed aggregation ---
+    from topostream.aggregate.confidence import aggregate_results_dir
+    agg_results = aggregate_results_dir(output_dir)
+    logger.info(
+        "aggregation complete: %d condition groups processed.",
+        len(agg_results),
+    )
+
 
 def cmd_sweep(args: argparse.Namespace) -> None:
     """Single temperature sweep."""
@@ -343,9 +380,12 @@ def cmd_plot(args: argparse.Namespace) -> None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except ImportError:
-        logger.warning("matplotlib not installed; skipping plots.")
-        return
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit(
+            "ERROR: matplotlib is required for plotting but is not installed.\n"
+            "Install it with:  pip install matplotlib\n"
+            "Or install the plot extra:  pip install 'topostream[plot]'"
+        ) from exc
 
     # Group by (model, L)
     from collections import defaultdict
@@ -386,7 +426,30 @@ def cmd_plot(args: argparse.Namespace) -> None:
     plt.close(fig)
     logger.info("Saved: %s", output_dir / "vortex_density_vs_T.png")
 
-    # Plot |ψ₆| vs T
+    # Plot model-aware primary order parameter vs T.
+    # Uses summary["primary_order_value"] which is set per-model:
+    #   clock6 → clock6_order (the meaningful discriminant)
+    #   XY     → psi6_mag     (kept as the XY diagnostic default)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for (model, L), data in sorted(grouped.items()):
+        data.sort(key=lambda x: x["T"])
+        Ts = [d["T"] for d in data]
+        ys = [d.get("primary_order_value", d.get("psi6_mag", 0)) for d in data]
+        op_name = data[0].get("primary_order_name", "psi6_mag") if data else "psi6_mag"
+        ax.plot(Ts, ys, "o-", markersize=3, label=f"{model} L={L} ({op_name})")
+    ax.set_xlabel("T")
+    ax.set_ylabel("primary order parameter")
+    ax.set_title("Order parameter vs Temperature (model-aware)")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_dir / "order_parameter_vs_T.png", dpi=150)
+    plt.close(fig)
+    logger.info("Saved: %s", output_dir / "order_parameter_vs_T.png")
+
+    # Plot |ψ₆| vs T — diagnostic only.
+    # NOTE: For clock6, |ψ₆| ≈ 1 by algebra for all discrete configs and
+    # does NOT discriminate temperature.  This plot is kept as a diagnostic
+    # cross-check, not as a primary observable.
     fig, ax = plt.subplots(figsize=(8, 5))
     for (model, L), data in sorted(grouped.items()):
         data.sort(key=lambda x: x["T"])
@@ -395,14 +458,43 @@ def cmd_plot(args: argparse.Namespace) -> None:
         ax.plot(Ts, psi6s, "o-", markersize=3, label=f"{model} L={L}")
     ax.set_xlabel("T")
     ax.set_ylabel("|ψ₆|(T)")
-    ax.set_title("Sixfold order parameter vs Temperature")
+    ax.set_title("|ψ₆| vs Temperature — DIAGNOSTIC (not primary for clock6)")
     ax.legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(output_dir / "psi6_vs_T.png", dpi=150)
+    fig.savefig(output_dir / "psi6_vs_T_diagnostic.png", dpi=150)
     plt.close(fig)
-    logger.info("Saved: %s", output_dir / "psi6_vs_T.png")
+    logger.info("Saved: %s", output_dir / "psi6_vs_T_diagnostic.png")
 
-    logger.info("plot: %d figures saved to %s", 3, output_dir)
+    logger.info("plot: %d figures saved to %s", 4, output_dir)
+
+
+def cmd_aggregate(args: argparse.Namespace) -> None:
+    """Run multi-seed aggregation on an existing results directory."""
+    from topostream.aggregate.confidence import aggregate_results_dir
+
+    results_dir = Path(args.results_dir)
+    if not results_dir.exists():
+        logger.error("Results directory does not exist: %s", results_dir)
+        raise SystemExit(1)
+
+    match_tolerance = getattr(args, "match_tolerance", 1.0)
+    agg_results = aggregate_results_dir(results_dir, match_tolerance=match_tolerance)
+
+    if not agg_results:
+        logger.warning("No conditions found to aggregate.")
+        raise SystemExit(1)
+
+    for key, summary in sorted(agg_results.items()):
+        model, L, T = key
+        logger.info(
+            "  %s L=%d T=%.4f: stability=%.3f, %d consensus clusters, %d seeds",
+            model, L, T,
+            summary["global_detection_stability"],
+            summary["n_consensus_clusters"],
+            summary["N_seeds"],
+        )
+
+    logger.info("aggregate: %d condition groups processed.", len(agg_results))
 
 
 # ===================================================================
@@ -445,7 +537,7 @@ def _make_sweep_deltas(
     deltas: list[dict] = []
     for delta_type, delta_value in delta_specs:
         tok = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "sweep_delta",
             "provenance": provenance,
             "sweep_delta": {
@@ -495,6 +587,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_plt.add_argument("--results-dir", required=True)
     p_plt.add_argument("--output", required=True, help="Output figures directory")
 
+    # aggregate
+    p_agg = sub.add_parser("aggregate", help="Run multi-seed aggregation")
+    p_agg.add_argument("--results-dir", required=True,
+                       help="Directory containing per-seed .jsonl token files")
+    p_agg.add_argument("--match-tolerance", type=float, default=1.0,
+                       help="Match tolerance in plaquette units (default: 1.0)")
+
     return parser
 
 
@@ -516,6 +615,7 @@ def main() -> None:
         "sweep": cmd_sweep,
         "validate": cmd_validate,
         "plot": cmd_plot,
+        "aggregate": cmd_aggregate,
     }
     dispatch[args.command](args)
 

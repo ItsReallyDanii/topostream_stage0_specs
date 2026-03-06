@@ -1,0 +1,12 @@
+{
+  "model": "XY",
+  "L": 16,
+  "T": 0.9,
+  "seed": 42,
+  "n_vortices": 98,
+  "n_pairs": 49,
+  "f_paired": 1.0,
+  "upsilon": -0.7806429306258496,
+  "upsilon_err": 0.012721968651374796,
+  "r_max_used": 4.0
+}

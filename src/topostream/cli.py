@@ -267,6 +267,14 @@ def cmd_reproduce(args: argparse.Namespace) -> None:
 
     logger.info("reproduce complete: %d total tokens emitted.", len(all_tokens))
 
+    # --- Run multi-seed aggregation ---
+    from topostream.aggregate.confidence import aggregate_results_dir
+    agg_results = aggregate_results_dir(output_dir)
+    logger.info(
+        "aggregation complete: %d condition groups processed.",
+        len(agg_results),
+    )
+
 
 def cmd_sweep(args: argparse.Namespace) -> None:
     """Single temperature sweep."""
@@ -405,6 +413,35 @@ def cmd_plot(args: argparse.Namespace) -> None:
     logger.info("plot: %d figures saved to %s", 3, output_dir)
 
 
+def cmd_aggregate(args: argparse.Namespace) -> None:
+    """Run multi-seed aggregation on an existing results directory."""
+    from topostream.aggregate.confidence import aggregate_results_dir
+
+    results_dir = Path(args.results_dir)
+    if not results_dir.exists():
+        logger.error("Results directory does not exist: %s", results_dir)
+        raise SystemExit(1)
+
+    match_tolerance = getattr(args, "match_tolerance", 1.0)
+    agg_results = aggregate_results_dir(results_dir, match_tolerance=match_tolerance)
+
+    if not agg_results:
+        logger.warning("No conditions found to aggregate.")
+        raise SystemExit(1)
+
+    for key, summary in sorted(agg_results.items()):
+        model, L, T = key
+        logger.info(
+            "  %s L=%d T=%.4f: stability=%.3f, %d consensus clusters, %d seeds",
+            model, L, T,
+            summary["global_detection_stability"],
+            summary["n_consensus_clusters"],
+            summary["N_seeds"],
+        )
+
+    logger.info("aggregate: %d condition groups processed.", len(agg_results))
+
+
 # ===================================================================
 # sweep_delta helpers
 # ===================================================================
@@ -495,6 +532,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_plt.add_argument("--results-dir", required=True)
     p_plt.add_argument("--output", required=True, help="Output figures directory")
 
+    # aggregate
+    p_agg = sub.add_parser("aggregate", help="Run multi-seed aggregation")
+    p_agg.add_argument("--results-dir", required=True,
+                       help="Directory containing per-seed .jsonl token files")
+    p_agg.add_argument("--match-tolerance", type=float, default=1.0,
+                       help="Match tolerance in plaquette units (default: 1.0)")
+
     return parser
 
 
@@ -516,6 +560,7 @@ def main() -> None:
         "sweep": cmd_sweep,
         "validate": cmd_validate,
         "plot": cmd_plot,
+        "aggregate": cmd_aggregate,
     }
     dispatch[args.command](args)
 

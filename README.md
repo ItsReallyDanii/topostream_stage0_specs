@@ -1,98 +1,272 @@
 # topostream
 
-**Topology Event Stream** toolkit for 2D XY / q=6 clock-style physics: extracts **vortex / pair / sweep_delta** tokens from simulated spin fields (and, later, constrained “map-mode” inputs), with **schema validation** and **reproducibility gates**.
+**Topology Event Stream** toolkit for 2D XY and q=6 clock-model workflows.
 
-This repo is structured as a **research artifact**: specs are locked, implementations are test-gated, and outputs are designed to be portable across pipelines.
+This repository defines and implements a **portable event-stream layer** for topological-defect analysis:
+- simulate spin fields
+- extract vortices / antivortices
+- pair defects
+- compute summary observables
+- emit schema-validated `vortex`, `pair`, and `sweep_delta` tokens with provenance
 
-## What this is (and is not)
+The current contribution is best understood as a **reproducible reference pipeline + artifact contract**.  
+It is **not yet** a claim of new physics, experimental reproduction, or probe-agnostic inversion.
 
-**This is:**
-- A **portable representation layer** (“topological event stream”) + reference implementation.
-- CPU-first (Numba) simulation + extraction + pairing + metrics (**Υ helicity modulus**, **ψ₆**) with validation.
+---
 
-**This is not:**
-- A claim of reproducing any specific experimental dataset (e.g., NiPS₃) end-to-end.
-- A general-purpose “probe-agnostic” inversion tool for arbitrary images (map-mode is adapter-explicit and synthetic-first).
+## What this is
+
+This repo currently provides:
+
+- **Reference implementations** for:
+  - 2D XY Metropolis simulation (Numba)
+  - q=6 clock Metropolis simulation (Numba)
+  - plaquette-based vortex extraction
+  - Hungarian min-cost vortex/antivortex pairing with `r_max` policy
+  - core observables and summary outputs
+- A **schema-defined token layer**:
+  - `vortex`
+  - `pair`
+  - `sweep_delta`
+- A **CLI workflow** for:
+  - `reproduce`
+  - `sweep`
+  - `validate`
+  - `plot`
+- A **synthetic-first map-mode scaffold**:
+  - forward models
+  - explicit adapters
+  - controlled degradation testing
+
+---
+
+## What this is not
+
+This repo does **not** currently claim:
+
+- a new physical law, phase-discovery method, or novel simulator
+- reproduction of any specific experimental dataset end-to-end
+- a general-purpose image inversion tool
+- proof that the event-stream abstraction is already superior to raw-field workflows in all settings
+
+Map-mode remains **adapter-explicit** and **synthetic-first**.
+
+---
 
 ## Current status
 
-**Locked specs (Stage 0):**
-- `docs/` — normative inputs, formulae, algorithms, metrics, UQ, validation
-- `schemas/` — `topology_event_stream.schema.json`
-- `agents/` — handoff contracts and gate order
+### Implemented and test-covered
+- XY simulator
+- q=6 clock simulator
+- vortex extraction
+- Hungarian pairing
+- helicity modulus
+- clock-model metrics
+- schema validation helpers
+- CLI (`reproduce`, `sweep`, `validate`, `plot`)
+- synthetic map forward/adapters
+- determinism and schema-validation tests
 
-**Implemented + passing gates:**
-- Agent 02 — vortex extraction ✅
-- Agent 03 — Hungarian pairing + r_max policy ✅
-- Agent 04 — metrics: helicity modulus Υ + ψ₆ + histogram + regime labeling ✅
-- Agent 01 — Numba XY Metropolis simulator ✅
-- Agent 05 — validation suite ✅
+### Implemented but still methodologically incomplete
+- `vortex.confidence` field exists in the schema
+- current extractor uses a **single-run default** confidence value
+- multi-seed / re-detection confidence aggregation is **not yet wired**
 
-**Pending:**
-- Agent 06 — CLI `reproduce` wiring ⏳
+### Important limitations
+- the event-stream layer is implemented, but its **material advantage** over ordinary raw-field outputs is **not yet demonstrated**
+- clock6 summaries should use a **clock-specific order observable** as the primary summary, rather than presenting `|ψ₆|` as the main signal
+- packaging metadata should be aligned with runtime reality for CLI/plot dependencies
 
-## Repo layout (high level)
+---
 
-- `docs/` — locked specifications (do not edit casually)
-- `schemas/` — JSON schema for emitted tokens
-- `agents/` — agent handoffs + gating rules
-- `src/topostream/`
-  - `simulate/` — XY (Numba) simulation
-  - `extract/` — vortex extraction + pairing
-  - `metrics/` — helicity modulus Υ, ψ₆, histograms, regime labeling
-  - `map/` — (future) synthetic-forward models + adapters
-  - `io/` — (future) schema validation helpers / persistence
-- `tests/` — gate tests + validation suite
-- `results/` — run outputs (ignored by git)
+## Why the token stream exists
 
-## Install (local)
+The point of the token stream is **not** to replace raw fields.
+
+The point is to provide a **stable interchange layer** for downstream tasks that need:
+- cross-pipeline interoperability
+- compact defect-level analytics
+- reproducible benchmarking
+- map/simulation comparison without assuming identical raw inputs
+
+The key question this repo is trying to answer is:
+
+> Can topological defects be represented in a way that is portable across simulation outputs and constrained map-like inputs, without forcing every downstream tool to re-interpret raw arrays?
+
+That question is only **partially answered** today:
+- the representation exists
+- the validation exists
+- the proof of downstream advantage still needs to be shown
+
+---
+
+## Repository layout
+
+| Path | Description |
+|------|-------------|
+| `docs/` | Locked specifications for inputs, algorithms, formulae, metrics, UQ, validation |
+| `schemas/` | JSON schema for token outputs |
+| `agents/` | Handoff contracts and gate ordering |
+| `configs/` | Example reproduction config(s) |
+| `src/topostream/simulate/` | XY and q=6 clock simulation |
+| `src/topostream/extract/` | Vortex extraction and pairing |
+| `src/topostream/metrics/` | Helicity, clock metrics, regime helpers |
+| `src/topostream/map/` | Synthetic forward models and adapters |
+| `src/topostream/io/` | Schema validation helpers |
+| `tests/` | Gate tests and validation tests |
+| `results/` | Run outputs (gitignored) |
+
+---
+
+## Installation
+
+### Base install
 
 ```bash
 python -m venv .venv
-# mac/linux:
-source .venv/bin/activate
-# windows powershell:
-# .venv\Scripts\Activate.ps1
+source .venv/bin/activate          # mac / linux
+# .venv\Scripts\Activate.ps1      # windows powershell
 
 python -m pip install -U pip
 python -m pip install -e .
 ```
 
-## Run tests (current gates)
+### CLI config support
+
+The CLI reads YAML configs, so install:
+
+```bash
+python -m pip install pyyaml
+```
+
+### Plotting support
+
+Plot generation requires:
+
+```bash
+python -m pip install matplotlib
+```
+
+If `matplotlib` is absent, the `plot` subcommand is skipped gracefully.
+
+---
+
+## Quick start
+
+### Run tests
 
 ```bash
 python -m pytest -q
 ```
 
-Or per gate:
+### Run one sweep
 
 ```bash
-python -m pytest -q tests/test_extract_vortices.py
-python -m pytest -q tests/test_pairing.py
-python -m pytest -q tests/test_metrics_helicity.py tests/test_metrics_clock.py
-python -m pytest -q tests/test_sim_xy.py
-python -m pytest -q tests/test_validation_suite.py
+python -m topostream.cli sweep --model XY --L 16 --T 0.9 --seed 42
 ```
 
-## Outputs (token stream)
+### Run full reproduce config
 
-The canonical output format is defined by:
+```bash
+python -m topostream.cli reproduce --config configs/default.yaml
+```
 
-- `schemas/topology_event_stream.schema.json`
+### Validate all emitted tokens
 
-Token types:
-- `vortex` — `{id, x, y, charge, strength, confidence}`
-- `pair` — `{pair_id, vortex_id, antivortex_id, separation_r, r_max_used}`
-- `sweep_delta` — temperature-indexed snapshot deltas (not physical-time dynamics)
+```bash
+python -m topostream.cli validate --results-dir results/
+```
 
-All emitted tokens should validate against the schema and include provenance metadata.
+### Generate figures from summaries
 
-## Contact / collaboration
+```bash
+python -m topostream.cli plot --results-dir results/ --output figures/
+```
 
-This repository is intended to be readable and reusable by other researchers. If you want to compare against experimental map-like outputs, the preferred workflow is:
+---
 
-1) provide a small sample of processed “map-mode” inputs + metadata  
-2) define the supported map family and adapter assumptions explicitly  
-3) evaluate token stability under controlled degradations (synthetic-first)
+## Outputs
 
-_Last updated: 2026-03-03_
+### Canonical token schema
+
+Defined in:
+
+```
+schemas/topology_event_stream.schema.json
+```
+
+### Token types
+
+#### `vortex`
+
+```json
+{ "id": "...", "x": 0, "y": 0, "charge": 1, "strength": 0.0, "confidence": 1.0 }
+```
+
+#### `pair`
+
+```json
+{ "pair_id": "...", "vortex_id": "...", "antivortex_id": "...", "separation_r": 0.0, "r_max_used": 0.0 }
+```
+
+#### `sweep_delta`
+
+- Derived deltas between consecutive temperature-indexed snapshots
+- **Not** physical-time dynamics
+
+### Token requirements
+
+All tokens must:
+- validate against the schema
+- include provenance
+- be reproducible from the same seed + parameters
+
+---
+
+## Reproducibility stance
+
+This repo is organized as a research artifact:
+
+- specs are explicit
+- outputs are schema-validated
+- seeds are recorded
+- tests enforce determinism and contract behavior
+
+**What is still missing** is the next step:
+- a frozen benchmark artifact
+- real multi-seed confidence aggregation
+- a downstream demonstration that consumes tokens directly and shows why the token layer matters
+
+---
+
+## Strongest honest positioning
+
+> Today, **topostream** is best described as: a reproducible, schema-driven reference pipeline for XY / q=6 topological-defect workflows, with a portable token layer and synthetic-first map-mode scaffolding — but without a completed proof yet that the token abstraction materially outperforms ordinary raw-field workflows.
+
+---
+
+## Collaboration stance
+
+This repository is designed to be readable by:
+- technical reviewers
+- future collaborators
+- researchers who want a reproducible contract around defect extraction outputs
+
+The best near-term collaboration target is **not** "new physics claims."  
+It is:
+- interoperability
+- robustness benchmarking
+- defect-level comparison across heterogeneous producers
+
+---
+
+## Immediate priorities
+
+1. Remove package / README / output drift
+2. Implement real multi-seed token confidence
+3. Freeze one benchmark bundle
+4. Add one downstream token-only analysis that proves the abstraction earns its keep
+
+---
+
+*Last updated: 2026-03-05*

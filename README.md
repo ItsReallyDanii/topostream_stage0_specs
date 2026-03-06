@@ -1,142 +1,200 @@
-# TopoStream — Portable Topological Measurement Pipeline for BKT / Clock Systems
+# TopoStream — Topological Defect Analysis Pipeline for 2D Spin Systems
 
-This repository defines a spec‑first, schema‑stable, uncertainty‑aware infrastructure for quantifying topological phases in 2D spin systems (XY, q=6 clock, and related models). It is not a physics simulation library; it is a **standardized topological measurement language** for extracting, representing, and comparing vortex / clock phenomena across simulations and experimental‑like map inputs.
+Spec-driven, schema-stable pipeline for extracting, representing, and comparing
+vortex / clock topological defects in 2D spin systems (XY, q=6 clock, and
+synthetic map-mode inputs).
 
-## Core idea
+---
 
-Imagine: simulations and experimental maps speak different “languages.”
+## What this repository contains
 
-- Simulations output raw spin fields.
-- Experimental setups output scalar or vector images (e.g., STM, NV‑based magnetometry, SQUID, etc.).
+| Component | Status |
+|-----------|--------|
+| XY / clock6 Monte Carlo simulator (Numba) | ✅ implemented |
+| Vortex extraction (plaquette winding number) | ✅ implemented |
+| Vortex–antivortex pairing (Hungarian, PBC) | ✅ implemented |
+| Schema-validated token event stream (JSONL) | ✅ implemented |
+| Helicity modulus Υ(L,T) | ✅ implemented |
+| Multi-seed confidence aggregation | ✅ implemented |
+| clock6 model-aware summary (clock6_order primary) | ✅ implemented |
+| Synthetic map-mode forward models + adapters | ✅ implemented (synthetic only) |
+| Token-only downstream cross-pipeline benchmark | ✅ implemented |
+| Frozen regression benchmark artifact | ✅ committed in `benchmarks/` |
+| CLI (`reproduce`, `sweep`, `validate`, `plot`, `aggregate`) | ✅ implemented |
+| Real experimental map integration | ❌ not implemented |
 
-**TopoStream** provides a shared intermediate language: a standardized set of topological facts that are portable across models and setups:
+---
 
-- vortex locations, charges, and strengths
-- vortex–antivortex pairings and separation statistics
-- sixfold order metrics (e.g., psi6, angle histograms)
-- uncertainty‑aware provenance (seeds, lattice sizes, temperatures, noise levels)
+## Token schema
 
-Once both simulation and map‑mode data are translated into this common form, you can compare, analyze, and reuse results across models, materials, and measurements in a way that is not possible with label‑only classifiers.
+All pipeline outputs conform to `schemas/topology_event_stream.schema.json` (v1.1.0).
 
-## What this is and what this is not
+Three token types:
 
-This project:
-- is **not** a machine‑learning phase classifier.
-- is **not** a general‑purpose ML library.
-- is **not** an attempt to reproduce the NiPS₃ experimental paper.
+```
+vortex      {id, x, y, charge (+1/-1), strength, confidence}
+pair        {pair_id, vortex_id, antivortex_id, separation_r, r_max_used}
+sweep_delta {delta_type, T_from, T_to, delta_value}
+```
 
-This project **is**:
-- a **spec‑driven infrastructure** for vortex/clock topological analysis.
-- a **schema‑stable tokenization layer** (vortex, pair, sweep_delta) that enforces finite‑size, uncertainty, and map‑adapter discipline.
-- a **template** for building reproducible, agent‑ready workflows in research codebases.
+Every token carries a `provenance` block: model, L, T, seed, sweep_index, schema_version.
+Tokens are written to JSONL files, one token per line.
 
-## Key design features
+---
 
-### 1. Physics‑aligned topological objects
+## Quick start
 
-The pipeline outputs structured topological objects, not just labels:
-- vortex: {x, y, charge (+1/-1), strength, confidence}
-- pair: {vortex_id, antivortex_id, separation_r, r_max_used}
-- sweep_delta: difference tokens between temperature‑indexed snapshots (NOT physical time dynamics).
+```bash
+pip install -e .                        # installs numpy, scipy, numba, jsonschema, pyyaml
+pip install -e '.[plot]'                # also installs matplotlib for the plot command
 
-All coordinates are defined with respect to a square lattice with periodic boundary conditions.
+# Single sweep
+python -m topostream.cli sweep --model XY --L 16 --T 0.9 --seed 42
 
-### 2. Three‑regime q=6 physics
+# Full reproduce run (uses configs/default.yaml)
+python -m topostream.cli reproduce --config configs/default.yaml
 
-The spec stack explicitly models the **three‑regime structure** of the q=6 clock model:
-- Disordered (T > T₂)
-- Quasi‑long‑range ordered (T₁ < T < T₂)
-- Clock‑ordered (T < T₁)
+# Validate all tokens in results/
+python -m topostream.cli validate --results-dir results/
 
-Both T₁ and T₂ are BKT‑type transitions. QLRO is treated as a distinct phase and never conflated with true clock order in any figure or metric.
+# Plot summaries
+python -m topostream.cli plot --results-dir results/ --output figures/
 
-### 3. Primary BKT observable: helicity modulus
+# Multi-seed aggregation
+python -m topostream.cli aggregate --results-dir results/
 
-Unlike many ML‑based BKT classifiers, this pipeline computes the **helicity modulus Upsilon(L,T)** as a required metric, not an optional add‑on. This anchors BKT‑transition identification in a standard thermodynamic observable, rather than relying solely on vortex‑counting heuristics.
+# Frozen benchmark check
+make benchmark-check
+```
 
-### 4. Reproducible pairing semantics
+---
 
-Vortex‑antivortex pairing uses **Hungarian‑based min‑cost bipartite matching** with a fixed cutoff policy (default r_max = L/4 in lattice units). This removes ambiguity in “which vortex is paired with which antivortex” and ensures that pairing fractions are reproducible across runs.
+## Dependencies
 
-### 5. Falsifiable map‑mode portability
+| Package | Role | Required |
+|---------|------|----------|
+| numpy | arrays | ✅ core |
+| scipy | Hungarian assignment, Gaussian blur | ✅ core |
+| numba | JIT-compiled MC | ✅ core |
+| jsonschema | token schema validation | ✅ core |
+| pyyaml | CLI config loading | ✅ core |
+| matplotlib | `plot` sub-command | optional (`pip install 'topostream[plot]'`) |
 
-Map‑mode is **adapter‑explicit**, not “probe‑agnostic”:
-- Only a predefined set of map families is supported (e.g., scalar real/imag, complex field, vector 2D, phase image).
-- Each family has explicit inversion rules (e.g., theta = arctan2(Vy, Vx)) and required metadata.
-- Synthetic forward models generate controlled degradations (blur, downsample, noise) to quantify the threshold at which token confidence collapses.
+---
 
-This makes the bridge between simulations and experimental‑like maps **falsifiable** instead of rhetorical.
+## Key design choices
 
-### 6. Explicit uncertainty discipline
+### Primary BKT observable: helicity modulus
 
-Uncertainty quantification is baked into the design, not just a label:
-- Equilibration and measurement sweeps are defined with minimum‑value guidelines.
-- Multiple independent seeds, bootstrap/jackknife resampling, and thermalization checks are required.
-- Vortex‑token confidence is defined as detection stability under resampling and perturbation.
+Υ(L,T) is computed as a required metric for every sweep.
+`psi6_mag` is retained as a diagnostic field in all summaries but is not
+treated as the primary order parameter.
 
-Results are required to be exactly reproducible given the same seed, lattice size, and temperature.
+### Model-aware summary contract
 
-### 7. Portable pipeline structure
+Every `summary_*.json` file includes:
+- `primary_order_name`: `"clock6_order"` for clock6, `"psi6_mag"` for XY
+- `primary_order_value`: the value of that observable
+- `psi6_mag`: always present as a diagnostic field
 
-The overall architecture is meant to be reused across different models and materials:
-- docs/ contains spec documents that lock inputs, formulas, algorithms, metrics, UQ, and validation.
-- schemas/ contains a JSON schema for the topology event stream.
-- agents/ contains handoffs that can be reused to implement or test the pipeline in a different setting.
+For clock6: `clock6_order` (population-concentration metric) is the meaningful
+discriminant. `|ψ₆|` is algebraically near-1 for all discrete clock configs and
+does not discriminate temperature — this is documented and not used as the primary.
 
-This design pattern can be ported to other 2D topological systems (e.g., different spin models, other vortex‑bearing systems) with minimal refactoring.
+### Pairing semantics
 
-## Relation to recent NiPS₃ experiments
+Hungarian min-cost bipartite matching with cutoff `r_max = L/4` (default).
+Periodic boundary conditions via minimum-image distance.
+`f_paired = (2 × n_pairs) / n_defects`.
 
-This work is inspired by the 2026 observation of a full sequence — from disorder, through a BKT‑like vortex‑pairing regime, to a six‑state clock‑ordered phase — in atomically thin NiPS₃ films. The NiPS₃ paper provides a concrete experimental context for the phenomena that TopoStream is designed to quantify.
+### Multi-seed confidence aggregation
 
-However, this repository does not attempt to reproduce the NiPS₃ experiment or its data analysis pipeline. Instead, it offers a **generalized measurement framework** that could, in principle, be adapted to such systems by providing a synthetic map‑to‑angle adapter that mimics the relevant experimental probe.
+For each `(model, L, T)` condition, detection stability is computed across seeds
+via cross-seed vortex clustering. Per-vortex confidence reflects how consistently
+the vortex appears across independent seeds. Single-seed runs emit `confidence=1.0`
+(documented as a placeholder, not a calibrated value).
 
-Researchers at UT Austin would likely evaluate this tool on two axes:
-- **Does it reproduce the expected BKT signatures (e.g., helicity modulus behavior, vortex‑pairing collapse) in known benchmark models?**
-- **Does it translate cleanly between simulated spins and experimental‑like maps, with falsifiable degradation thresholds?**
+### Map-mode
 
-If those tests are passed, there is a realistic possibility that such a framework could be used as a reference analysis pipeline for future 2D magnetic materials.
+Map-mode is **synthetic-first only**. The pipeline includes:
+- `forward_models.py`: theta → vector map, then blur / noise / masking
+- `adapters.py`: vector map → theta (arctan2 inversion)
 
-## Licensing and intended use
+No real experimental map integration exists. The map-mode path is used only
+to test that the token schema and downstream consumer are producer-agnostic.
 
-This repository is intended as open scientific infrastructure.
+### Token-only downstream benchmark
 
-- **No attempt to patent** any of the mathematical methods, formulas, or general algorithmic ideas.
-- **No requirement to monetize** the pipeline; rather, it is designed to be shared and reused.
-- **Copyright / license** should be a permissive open‑source license (e.g., MIT or BSD‑style), with a clear notice that the code and specs are provided for scientific use.
+`src/topostream/analysis/token_benchmark.py` demonstrates producer-agnostic
+downstream analysis: the same consumer compares simulation and degraded
+map-mode outputs using only JSONL token files — never raw spin fields.
 
-If you wish, you can choose to:
-- reserve a **project name** (e.g., TopoStream) as a GitHub repository and documentation brand;
-- keep the code and specs freely available under an open‑source license;
-- allow commercial use (e.g., companies building magnetic devices) to integrate this pipeline as long as contributions back to the community are encouraged.
+```bash
+python scripts/run_token_benchmark.py
+# results in results/token_benchmark/benchmark_results.json
+```
 
-Monetization, if desired, would come from supporting or extending the pipeline (e.g., consulting, integration into commercial tools, or building a web frontend for non‑expert users), not from locking the core research asset behind a patent.
+What this proves: a single token-based downstream analysis can compare outputs
+from both simulation and synthetic map-like producers without custom raw-data
+logic for each producer.
 
-## Monetization possibilities (optional)
+What this does not prove: compatibility with real experimental data formats,
+calibrated confidence across producers, or optimality of the matching heuristic.
 
-If you later decide to explore monetization pathways, several directions are viable:
-- A **web app** frontend that accepts lattice‑formatted files or synthetic‑map inputs and runs a hosted version of the pipeline, returning visualizations and confidence metrics.
-- A **library** that plugins into existing simulation frameworks (e.g., Python‑based Monte Carlo codes) and exposes a unified API for vortex analysis.
-- A **consulting / integration** offering for experimental groups that want to translate their 2D magnetic data into this standardized topological language.
+### Frozen benchmark
 
-However, because the core scientific value here is reproducibility and transparency, the most defensible long‑term strategy is to keep the core pipeline open and build any commercial value on top of it.
+`benchmarks/stage1_xy_single_sweep/frozen/` contains committed reference outputs
+for a fixed XY run (L=16, T=0.9, seed=42). These are regression anchors, not
+publication benchmarks.
 
-## How to use this
+```
+benchmarks/stage1_xy_single_sweep/frozen/
+  sim_XY_16x16_T0.9000_seed0042.npy
+  tokens_XY_16x16_T0.9000_seed0042.jsonl
+  summary_XY_16x16_T0.9000_seed0042.json
+```
 
-TopoStream is designed as a **spec‑driven starting point** for research projects. To use it:
+---
 
-1. Clone this repository and inspect the seven spec documents in docs/.
-2. Implement the simulation and extraction modules (e.g., simulate/xy_numba.py, extract/vortices.py, extract/pairing.py, metrics/helicity.py, metrics/clock.py).
-3. Ensure all output tokens validate against schemas/topology_event_stream.schema.json.
-4. Run the validation suite in tests/ to confirm that toy configs, null tests, finite‑size checks, and noise‑robustness tests pass.
-5. Use the CLI (cli.py) to generate reproducible artifacts (tokens, metrics, plots) into a results/ folder.
+## Repository layout
 
-This repository is a template you can reuse in future projects, avoiding the need to reinvent the wheel for every new 2D spin‑system analysis.
+```
+src/topostream/
+  simulate/       xy_numba.py, clock6_numba.py
+  extract/        vortices.py, pairing.py
+  metrics/        clock.py (psi6, clock6_order, helicity)
+  aggregate/      confidence.py (multi-seed cross-seed clustering)
+  map/            forward_models.py, adapters.py
+  analysis/       token_benchmark.py (token-only downstream consumer)
+  io/             schema_validate.py
+  cli.py
 
-## Final note on novelty and uniqueness
+benchmarks/stage1_xy_single_sweep/   frozen outputs + run_benchmark.py
+schemas/                              topology_event_stream.schema.json
+docs/                                 spec documents
+configs/                              default.yaml
+scripts/                              run_token_benchmark.py, physics_sanity_audit.py
+tests/                                pytest suite (336 tests)
+```
 
-The **core idea** — a portable, schema‑stable, uncertainty‑aware topological measurement pipeline for BKT/clock systems — is **unique** in the sense that it ties together multiple desirable properties (standardized objects, map‑to‑spin translation, explicit UQ, and reproducible pairing semantics) in a single, spec‑first, agent‑ready framework.
+---
 
-It is not a “groundbreaking” theoretical discovery, nor a Nobel‑level contribution. But it **is** a **practical, reusable research artifact** that could serve as a valuable community‑standard tool for analyzing 2D magnetic and topological phases in simulations and experiments alike.
+## Running tests
 
-You are under no obligation to commercialize this; you can choose to frame it as a portfolio‑grade research artifact that demonstrates your ability to design and document serious scientific infrastructure.
+```bash
+pytest tests/ -q
+```
+
+Expected: all tests pass except `test_load_default_config` if PyYAML is not
+installed in the environment (the test calls `_load_config` on
+`configs/default.yaml`; install `pyyaml` to fix it).
+
+---
+
+## What this is not
+
+- Not a machine-learning phase classifier.
+- Not a general-purpose Monte Carlo library.
+- Not an attempt to reproduce any specific experimental paper.
+- Map-mode does not connect to real experimental data; the adapter layer
+  is synthetic-only and its domain of validity is documented but narrow.

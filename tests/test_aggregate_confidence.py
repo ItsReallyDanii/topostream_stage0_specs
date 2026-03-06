@@ -445,15 +445,22 @@ class TestSchemaAfterAggregation:
             results = aggregate_results_dir(tmpdir)
             assert len(results) == 1
 
-            # Re-read updated token files and validate against schema.
+            # Re-read aggregated token files and validate against schema.
             for seed in [42, 43, 44, 45]:
-                fname = f"tokens_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
-                with (tmpdir / fname).open() as f:
+                agg_fname = f"tokens_aggregated_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+                assert (tmpdir / agg_fname).exists(), f"Missing {agg_fname}"
+                with (tmpdir / agg_fname).open() as f:
                     for line in f:
                         tok = json.loads(line.strip())
                         jsonschema.validate(tok, _SCHEMA)
-                        # Confidence should now be 1.0 (all seeds identical).
-                        assert tok["vortex"]["confidence"] == 1.0
+                        if tok["token_type"] == "vortex":
+                            # Confidence should now be 1.0 (all seeds identical).
+                            assert tok["vortex"]["confidence"] == 1.0
+
+            # Originals must still exist unchanged.
+            for seed in [42, 43, 44, 45]:
+                orig_fname = f"tokens_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+                assert (tmpdir / orig_fname).exists()
 
     def test_aggregate_artifact_written(self):
         """Verify the aggregate JSON artifact is created."""
@@ -498,7 +505,10 @@ class TestSchemaAfterAggregation:
 
 class TestEdgeCases:
     def test_single_seed(self):
-        """With one seed, confidence = 1.0 and stability = 1.0."""
+        """With one seed, confidence = 1.0 and stability = 1.0.
+        This is a DEGENERATE case: N_seeds=1 provides no cross-seed
+        evidence, so confidence=1.0 means 'not contradicted', not
+        'confirmed reliable'."""
         L = 16
         seeds_dict = {
             42: [_make_vortex_token(5.5, 5.5, +1, 42, L=L)],
@@ -535,7 +545,7 @@ class TestEdgeCases:
             assert results == {}
 
     def test_non_vortex_tokens_preserved(self):
-        """Pair tokens in the file should be passed through unchanged."""
+        """Pair tokens in the aggregated file should be passed through unchanged."""
         L = 16
         T = 0.9
         model = "XY"
@@ -565,10 +575,155 @@ class TestEdgeCases:
 
             aggregate_results_dir(tmpdir)
 
-            # Re-read file: pair token should be unchanged.
-            with (tmpdir / fname).open() as f:
+            # Re-read AGGREGATED file: pair token should be unchanged.
+            agg_fname = f"tokens_aggregated_{model}_{L}x{L}_T{T:.4f}_seed0042.jsonl"
+            with (tmpdir / agg_fname).open() as f:
                 lines = [json.loads(l.strip()) for l in f if l.strip()]
 
             pair_lines = [l for l in lines if l["token_type"] == "pair"]
             assert len(pair_lines) == 1
             assert pair_lines[0]["pair"]["pair_id"] == pair_tok["pair"]["pair_id"]
+
+            # Original file must still exist.
+            assert (tmpdir / fname).exists()
+
+
+# ---------------------------------------------------------------------------
+# Tests: Order invariance
+# ---------------------------------------------------------------------------
+
+class TestOrderInvariance:
+    """Confidence results must not depend on the order seeds are processed."""
+
+    def test_permuted_seed_order_gives_same_confidence(self):
+        """Build seeds_dict in two different key orders.
+        Both must produce identical confidence and cluster count."""
+        L = 16
+        base = {
+            42: [_make_vortex_token(5.5, 5.5, +1, 42, L=L)],
+            43: [_make_vortex_token(5.5, 5.5, +1, 43, L=L)],
+            44: [_make_vortex_token(5.8, 5.3, +1, 44, L=L)],
+            45: [],
+        }
+
+        # Forward order.
+        summary_fwd = compute_condition_aggregate(
+            dict(sorted(base.items())),
+            model="XY", L=L, T=0.9,
+        )
+
+        # Reverse order.
+        summary_rev = compute_condition_aggregate(
+            dict(sorted(base.items(), reverse=True)),
+            model="XY", L=L, T=0.9,
+        )
+
+        assert summary_fwd["n_consensus_clusters"] == summary_rev["n_consensus_clusters"]
+        assert summary_fwd["global_detection_stability"] == summary_rev["global_detection_stability"]
+
+        for cv_f, cv_r in zip(
+            sorted(summary_fwd["consensus_vortices"], key=lambda c: (c["charge"], c["x"])),
+            sorted(summary_rev["consensus_vortices"], key=lambda c: (c["charge"], c["x"])),
+        ):
+            assert cv_f["confidence"] == cv_r["confidence"]
+            assert cv_f["n_detections"] == cv_r["n_detections"]
+            assert cv_f["charge"] == cv_r["charge"]
+            assert abs(cv_f["x"] - cv_r["x"]) < 1e-12
+            assert abs(cv_f["y"] - cv_r["y"]) < 1e-12
+
+    def test_permuted_with_offset_positions(self):
+        """Slightly offset positions, permuted seed order."""
+        L = 16
+        base = {
+            42: [_make_vortex_token(5.5, 5.5, +1, 42, L=L)],
+            43: [_make_vortex_token(5.7, 5.3, +1, 43, L=L)],
+            44: [_make_vortex_token(5.3, 5.8, +1, 44, L=L)],
+        }
+
+        import itertools
+        results = []
+        for perm in itertools.permutations(base.keys()):
+            d = {k: base[k] for k in perm}
+            s = compute_condition_aggregate(d, model="XY", L=L, T=0.9)
+            results.append(s)
+
+        # All permutations must give the same confidence values.
+        for s in results[1:]:
+            assert s["n_consensus_clusters"] == results[0]["n_consensus_clusters"]
+            for cv_a, cv_b in zip(
+                sorted(s["consensus_vortices"], key=lambda c: c["charge"]),
+                sorted(results[0]["consensus_vortices"], key=lambda c: c["charge"]),
+            ):
+                assert cv_a["confidence"] == cv_b["confidence"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Idempotence
+# ---------------------------------------------------------------------------
+
+class TestIdempotence:
+    """Running aggregation twice must produce identical outputs."""
+
+    def test_double_aggregation_idempotent(self):
+        L = 16
+        T = 0.9
+        model = "XY"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            # Write per-seed token files.
+            for seed in [42, 43, 44, 45]:
+                tokens = [
+                    _make_vortex_token(5.5, 5.5, +1, seed, model=model, L=L, T=T),
+                    _make_vortex_token(10.5, 10.5, -1, seed, model=model, L=L, T=T),
+                ]
+                if seed == 45:
+                    tokens = [tokens[0]]  # seed 45 misses the antivortex
+                fname = f"tokens_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+                with (tmpdir / fname).open("w") as f:
+                    for tok in tokens:
+                        f.write(json.dumps(tok) + "\n")
+
+            # First aggregation.
+            results_1 = aggregate_results_dir(tmpdir)
+
+            # Read all outputs after first run.
+            agg_file = tmpdir / f"aggregate_{model}_{L}x{L}_T{T:.4f}.json"
+            with agg_file.open() as f:
+                agg_1 = json.load(f)
+
+            agg_tokens_1 = {}
+            for seed in [42, 43, 44, 45]:
+                agg_fname = f"tokens_aggregated_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+                with (tmpdir / agg_fname).open() as f:
+                    agg_tokens_1[seed] = [json.loads(l.strip()) for l in f if l.strip()]
+
+            # Second aggregation.
+            results_2 = aggregate_results_dir(tmpdir)
+
+            # Read all outputs after second run.
+            with agg_file.open() as f:
+                agg_2 = json.load(f)
+
+            agg_tokens_2 = {}
+            for seed in [42, 43, 44, 45]:
+                agg_fname = f"tokens_aggregated_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+                with (tmpdir / agg_fname).open() as f:
+                    agg_tokens_2[seed] = [json.loads(l.strip()) for l in f if l.strip()]
+
+            # Aggregate JSON must be identical.
+            assert agg_1 == agg_2
+
+            # Aggregated token files must be identical.
+            for seed in [42, 43, 44, 45]:
+                assert agg_tokens_1[seed] == agg_tokens_2[seed]
+
+            # Confidence values must match.
+            key = (model, L, T)
+            for cv_1, cv_2 in zip(
+                sorted(results_1[key]["consensus_vortices"], key=lambda c: (c["charge"], c["x"])),
+                sorted(results_2[key]["consensus_vortices"], key=lambda c: (c["charge"], c["x"])),
+            ):
+                assert cv_1["confidence"] == cv_2["confidence"]
+                assert cv_1["n_detections"] == cv_2["n_detections"]

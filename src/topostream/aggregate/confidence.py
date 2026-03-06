@@ -53,7 +53,10 @@ def aggregate_results_dir(
     dict[(model, L, T)] -> condition_summary dict
     """
     results_dir = Path(results_dir)
-    token_files = sorted(results_dir.glob("tokens_*.jsonl"))
+    token_files = sorted(
+        f for f in results_dir.glob("tokens_*.jsonl")
+        if not f.name.startswith("tokens_aggregated_")
+    )
     if not token_files:
         logger.warning("No token files found in %s", results_dir)
         return {}
@@ -124,6 +127,15 @@ def compute_condition_aggregate(
     dict with keys: model, L, T, N_seeds, mu_vortex_count,
     sigma_vortex_count, global_detection_stability, n_consensus_clusters,
     consensus_vortices (list of consensus vortex dicts with confidence).
+
+    Notes
+    -----
+    Single-seed degeneracy: when N_seeds == 1, every detected vortex
+    trivially gets confidence = 1.0 and global_detection_stability = 1.0.
+    This is mathematically correct but does NOT indicate reliability —
+    it simply means there is no cross-seed evidence to lower confidence.
+    Downstream consumers should check N_seeds before interpreting
+    confidence as evidence of robustness.
     """
     seeds = sorted(seeds_dict.keys())
     N_seeds = len(seeds)
@@ -234,12 +246,16 @@ def _build_consensus_clusters(
     Algorithm:
     1. Separate vortices by charge (same-charge matching only).
     2. For each charge group, greedily cluster:
-       - Take the first unassigned vortex as a seed for a new cluster.
-       - Find all unassigned vortices from OTHER seeds that are within
-         match_tolerance (minimum-image distance) of the cluster centroid.
+       - Take the first unassigned vortex as a cluster anchor.
+       - Match all unassigned vortices from OTHER seeds that are within
+         match_tolerance of the ANCHOR position (not a moving centroid).
        - Each seed contributes at most one member to a cluster.
        - Confidence = n_members / N_seeds.
     3. Return cluster centroids with confidence values.
+
+    The anchor-based matching ensures results are invariant to the order
+    in which seeds are processed.  Mean position is computed after all
+    members are collected, purely for output — it does not affect matching.
 
     Conservative: simple greedy, no iterative EM.
     """
@@ -258,15 +274,15 @@ def _build_consensus_clusters(
             if assigned[i]:
                 continue
 
-            # Start a new cluster with this vortex.
+            # Start a new cluster with this vortex as the ANCHOR.
             cluster_members = [cand]
             assigned[i] = True
             member_seeds = {cand["seed"]}
 
-            # Cluster centroid (using first member as reference).
-            cx, cy = cand["x"], cand["y"]
+            # Anchor position — fixed for matching (never updated).
+            ax, ay = cand["x"], cand["y"]
 
-            # Find matches from other seeds.
+            # Find matches from other seeds against the anchor.
             for j in range(i + 1, len(candidates)):
                 if assigned[j]:
                     continue
@@ -274,22 +290,22 @@ def _build_consensus_clusters(
                 if other["seed"] in member_seeds:
                     # Same seed — do not merge (each seed contributes once).
                     continue
-                dist = minimum_image_distance(cx, cy, other["x"], other["y"], L)
+                dist = minimum_image_distance(ax, ay, other["x"], other["y"], L)
                 if dist <= match_tolerance:
                     cluster_members.append(other)
                     assigned[j] = True
                     member_seeds.add(other["seed"])
-                    # Update centroid as running mean.
-                    n = len(cluster_members)
-                    cx = cx + (other["x"] - cx) / n
-                    cy = cy + (other["y"] - cy) / n
 
             confidence = len(cluster_members) / N_seeds
             mean_strength = float(np.mean([m["strength"] for m in cluster_members]))
 
+            # Compute mean position for output only (does not affect matching).
+            mean_x = float(np.mean([m["x"] for m in cluster_members]))
+            mean_y = float(np.mean([m["y"] for m in cluster_members]))
+
             clusters.append({
-                "x": cx,
-                "y": cy,
+                "x": mean_x,
+                "y": mean_y,
                 "charge": charge_val,
                 "strength": mean_strength,
                 "confidence": confidence,
@@ -306,22 +322,27 @@ def _update_token_files(
     summary: dict,
     seeds_dict: dict[int, list[dict]],
 ) -> None:
-    """Rewrite per-seed token files with updated vortex.confidence values.
+    """Write aggregated token files with updated vortex.confidence values.
 
-    For each vortex token in each seed's file, find the best-matching
-    consensus cluster and set vortex.confidence to the cluster's confidence.
-    Non-vortex tokens (pairs, sweep_deltas) are passed through unchanged.
+    Non-destructive: original ``tokens_*.jsonl`` files are left untouched.
+    Aggregated versions are written as ``tokens_aggregated_*.jsonl``.
+
+    For each vortex token, the best-matching consensus cluster's confidence
+    replaces the default 1.0 value.  Non-vortex tokens (pairs, sweep_deltas)
+    are passed through unchanged.
     """
     model, L, T = cond_key
     consensus = summary["consensus_vortices"]
 
     for seed, _ in seeds_dict.items():
-        token_file = results_dir / f"tokens_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
-        if not token_file.exists():
+        src_file = results_dir / f"tokens_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+        if not src_file.exists():
             continue
 
+        dst_file = results_dir / f"tokens_aggregated_{model}_{L}x{L}_T{T:.4f}_seed{seed:04d}.jsonl"
+
         updated_lines: list[str] = []
-        with token_file.open() as f:
+        with src_file.open() as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -335,7 +356,7 @@ def _update_token_files(
                     tok["vortex"]["confidence"] = best_conf
                 updated_lines.append(json.dumps(tok, default=_json_default))
 
-        with token_file.open("w") as f:
+        with dst_file.open("w") as f:
             for uline in updated_lines:
                 f.write(uline + "\n")
 

@@ -183,7 +183,7 @@ def _make_pair_token(
     """
     pair_id = f"pair_{vortex_id}_{antivortex_id}"
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "token_type": "pair",
         "provenance": provenance,
         "pair": {

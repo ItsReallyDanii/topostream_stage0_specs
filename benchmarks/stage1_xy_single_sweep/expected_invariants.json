@@ -1,0 +1,36 @@
+{
+  "description": "Structural invariants checked on every benchmark rerun, independent of hash comparison.",
+  "artifacts": [
+    "output/sim_XY_16x16_T0.9000_seed0042.npy",
+    "output/tokens_XY_16x16_T0.9000_seed0042.jsonl",
+    "output/summary_XY_16x16_T0.9000_seed0042.json"
+  ],
+  "token_invariants": {
+    "schema_valid": true,
+    "vortex_charge_values": [-1, 1],
+    "vortex_confidence_range": [0.0, 1.0],
+    "required_provenance_fields": ["model", "L", "T", "seed", "sweep_index", "schema_version"],
+    "provenance_values": {
+      "model": "XY",
+      "L": 16,
+      "T": 0.9,
+      "seed": 42
+    },
+    "required_vortex_fields": ["id", "x", "y", "charge", "strength", "confidence"]
+  },
+  "summary_invariants": {
+    "required_fields": [
+      "model", "L", "T", "seed",
+      "n_vortices", "n_pairs", "f_paired",
+      "upsilon", "upsilon_err", "r_max_used"
+    ],
+    "f_paired_range": [0.0, 1.0],
+    "n_vortices_positive": true,
+    "n_pairs_leq_n_vortices_div_2": true
+  },
+  "spin_config_invariants": {
+    "shape": [16, 16],
+    "dtype": "float64",
+    "values_in_range": [-3.1416, 3.1416]
+  }
+}

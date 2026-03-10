@@ -54,7 +54,7 @@ def config_path(tmp_path):
     """Write a minimal test config and return its path."""
     import yaml
     cfg = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "models": ["XY"],
         "L_values": [8],
         "T_range": {"start": 0.5, "stop": 1.5, "n_points": 3},
@@ -80,7 +80,7 @@ class TestConfig:
     def test_load_default_config(self):
         """configs/default.yaml loads without error."""
         cfg = _load_config("configs/default.yaml")
-        assert cfg["schema_version"] == "1.0.0"
+        assert cfg["schema_version"] == "1.1.0"
         assert "L_values" in cfg
         assert "T_range" in cfg
 
@@ -146,6 +146,13 @@ class TestSingleSweep:
         assert s["model"] == "XY"
         assert s["L"] == 8
         assert s["T"] == pytest.approx(0.9)
+        # New model-aware contract fields must be present
+        assert "primary_order_name" in s
+        assert "primary_order_value" in s
+        # psi6_mag kept as diagnostic
+        assert "psi6_mag" in s
+        # XY: primary is psi6_mag
+        assert s["primary_order_name"] == "psi6_mag"
 
     def test_all_tokens_schema_valid(self, tmp_output):
         """CRITICAL: every token must pass schema validation."""
@@ -165,11 +172,11 @@ class TestSingleSweep:
 class TestSchemaValidateHelper:
     def test_valid_vortex_token(self):
         tok = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "vortex",
             "provenance": {
                 "model": "XY", "L": 16, "T": 0.5,
-                "seed": 42, "sweep_index": 0, "schema_version": "1.0.0",
+                "seed": 42, "sweep_index": 0, "schema_version": "1.1.0",
             },
             "vortex": {
                 "id": "v_0", "x": 5.0, "y": 5.0,
@@ -185,11 +192,11 @@ class TestSchemaValidateHelper:
 
     def test_validate_tokens_returns_errors(self):
         good = {
-            "schema_version": "1.0.0",
+            "schema_version": "1.1.0",
             "token_type": "vortex",
             "provenance": {
                 "model": "XY", "L": 16, "T": 0.5,
-                "seed": 42, "sweep_index": 0, "schema_version": "1.0.0",
+                "seed": 42, "sweep_index": 0, "schema_version": "1.1.0",
             },
             "vortex": {
                 "id": "v_0", "x": 5.0, "y": 5.0,
@@ -303,3 +310,121 @@ class TestSweepDelta:
         for d_tok in deltas:
             validate_token(d_tok)
             assert d_tok["token_type"] == "sweep_delta"
+
+
+# ---------------------------------------------------------------------------
+# Summary contract: model-aware primary order parameter
+# ---------------------------------------------------------------------------
+
+class TestSummaryContract:
+    """Verify that summaries are model-aware and honest."""
+
+    def test_xy_primary_order_name(self, tmp_path):
+        """XY summary: primary_order_name == 'psi6_mag'."""
+        out = tmp_path / "r"
+        out.mkdir()
+        _run_single_sweep(
+            model="XY", L=8, T=0.9, seed=42,
+            N_equil=50, N_meas=100, N_thin=50,
+            r_max=2.0, output_dir=out,
+        )
+        sf = next(out.glob("summary_XY_*.json"))
+        s = json.loads(sf.read_text())
+        assert s["primary_order_name"] == "psi6_mag"
+        assert isinstance(s["primary_order_value"], float)
+        assert 0.0 <= s["primary_order_value"]
+        # psi6_mag still present as diagnostic
+        assert "psi6_mag" in s
+        # clock6_order must NOT appear in XY summary
+        assert "clock6_order" not in s
+
+    def test_clock6_primary_order_name(self, tmp_path):
+        """clock6 summary: primary_order_name == 'clock6_order'."""
+        out = tmp_path / "r"
+        out.mkdir()
+        _run_single_sweep(
+            model="clock6", L=8, T=0.5, seed=42,
+            N_equil=50, N_meas=100, N_thin=50,
+            r_max=2.0, output_dir=out,
+        )
+        sf = next(out.glob("summary_clock6_*.json"))
+        s = json.loads(sf.read_text())
+        assert s["primary_order_name"] == "clock6_order"
+        assert isinstance(s["primary_order_value"], float)
+        # clock6_order in [1/6, 1]
+        assert 0.0 < s["primary_order_value"] <= 1.0
+        # clock6_order also stored explicitly
+        assert "clock6_order" in s
+        assert s["clock6_order"] == pytest.approx(s["primary_order_value"])
+        # psi6_mag still present as diagnostic
+        assert "psi6_mag" in s
+
+    def test_clock6_primary_value_in_range(self, tmp_path):
+        """clock6_order is never below 1/6 (uniform distribution lower bound)."""
+        out = tmp_path / "r"
+        out.mkdir()
+        # Run at high T (disordered) — should still be >= 1/6
+        _run_single_sweep(
+            model="clock6", L=8, T=2.0, seed=99,
+            N_equil=50, N_meas=100, N_thin=50,
+            r_max=2.0, output_dir=out,
+        )
+        sf = next(out.glob("summary_clock6_*.json"))
+        s = json.loads(sf.read_text())
+        assert s["primary_order_value"] >= 1.0 / 6.0 - 1e-9
+        assert s["primary_order_value"] <= 1.0 + 1e-9
+
+    def test_clock6_psi6_mag_not_primary(self, tmp_path):
+        """For clock6, primary_order_name is never 'psi6_mag'.
+
+        This is the semantic problem this fix corrects.
+        """
+        out = tmp_path / "r"
+        out.mkdir()
+        _run_single_sweep(
+            model="clock6", L=8, T=0.5, seed=42,
+            N_equil=50, N_meas=100, N_thin=50,
+            r_max=2.0, output_dir=out,
+        )
+        sf = next(out.glob("summary_clock6_*.json"))
+        s = json.loads(sf.read_text())
+        assert s["primary_order_name"] != "psi6_mag", (
+            "clock6 summary must not present psi6_mag as the primary order "
+            "parameter — it is algebraically uninformative for discrete clock states."
+        )
+
+    def test_plot_uses_primary_order_value(self, tmp_path):
+        """cmd_plot reads primary_order_value for order_parameter_vs_T figure.
+
+        Tests the plot fallback: if primary_order_value is missing (old summary),
+        it falls back to psi6_mag and does not crash.
+        """
+        import types
+        # Craft a minimal summary without primary_order_value to test fallback.
+        old_summary = {
+            "model": "XY", "L": 8, "T": 0.9, "seed": 42,
+            "psi6_mag": 0.5,
+            # NO primary_order_name / primary_order_value
+        }
+        from topostream.cli import cmd_plot
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        figs_dir = tmp_path / "figs"
+        figs_dir.mkdir()
+        sf = results_dir / "summary_XY_8x8_T0.9000_seed0042.json"
+        sf.write_text(json.dumps(old_summary))
+
+        args = types.SimpleNamespace(
+            results_dir=str(results_dir),
+            output=str(figs_dir),
+        )
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+        except ImportError:
+            pytest.skip("matplotlib not installed")
+
+        # Should not raise even with old-format summary
+        cmd_plot(args)
+        # order_parameter_vs_T.png must be produced
+        assert (figs_dir / "order_parameter_vs_T.png").exists()

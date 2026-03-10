@@ -34,3 +34,6 @@ tmp_*.txt
 
 # Results (generated — not committed by default)
 results/
+
+# Benchmark scratch rerun outputs (frozen/ is committed; output/ is scratch)
+benchmarks/stage1_xy_single_sweep/output/

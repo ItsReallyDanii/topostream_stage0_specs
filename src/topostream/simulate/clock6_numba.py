@@ -357,7 +357,7 @@ def run_clock6(
         "N_equil": N_equil,
         "N_meas": N_meas,
         "N_thin": N_thin,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
 
     return {

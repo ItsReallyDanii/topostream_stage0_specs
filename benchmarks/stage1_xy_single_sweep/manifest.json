@@ -1,0 +1,40 @@
+{
+  "benchmark_name": "stage1_xy_single_sweep",
+  "created_at": "2026-03-05T23:02:27-06:00",
+  "repo_commit": "47c368ee2158a82f80cf982d682cb87cafc59f2c",
+  "parameters": {
+    "model": "XY",
+    "L": 16,
+    "T": 0.9,
+    "seed": 42,
+    "J": 1.0,
+    "N_equil": 1000,
+    "N_meas": 2000,
+    "N_thin": 50,
+    "r_max": 4.0
+  },
+  "command": "python benchmarks/stage1_xy_single_sweep/run_benchmark.py",
+  "artifacts": {
+    "spin_config": "frozen/sim_XY_16x16_T0.9000_seed0042.npy",
+    "tokens_jsonl": "frozen/tokens_XY_16x16_T0.9000_seed0042.jsonl",
+    "summary_json": "frozen/summary_XY_16x16_T0.9000_seed0042.json"
+  },
+  "hashes": {
+    "method": "sha256",
+    "note": "spin_config hashed as big-endian float64 bytes; tokens_jsonl hashed as sort_keys canonical JSON lines UTF-8; summary hashed as sort_keys canonical JSON UTF-8",
+    "spin_config_sha256": "427280bdaed104bfbc9d4ca19fecf588f9e608bc249716db9dc3858ebcb4b2d2",
+    "tokens_jsonl_sha256": "00bc294f328c990b05512adca2e64ee50e3c0c914f3cb4bfac430565b8955588",
+    "summary_sha256": "e765422db47a2975e0735da1b375dd859614733fb334899c29d2d97e82e4db65"
+  },
+  "expected_counts": {
+    "n_vortex_tokens": 98,
+    "n_pair_tokens": 49,
+    "n_configs_thinned": 40,
+    "f_paired": 1.0
+  },
+  "expected_scalars": {
+    "helicity": -0.78064293,
+    "helicity_err": 0.01272197,
+    "note": "Helicity values stored as reference; tests allow tolerance of 1e-6 for float comparison."
+  }
+}

@@ -1,272 +1,200 @@
-# topostream
+# TopoStream — Topological Defect Analysis Pipeline for 2D Spin Systems
 
-**Topology Event Stream** toolkit for 2D XY and q=6 clock-model workflows.
-
-This repository defines and implements a **portable event-stream layer** for topological-defect analysis:
-- simulate spin fields
-- extract vortices / antivortices
-- pair defects
-- compute summary observables
-- emit schema-validated `vortex`, `pair`, and `sweep_delta` tokens with provenance
-
-The current contribution is best understood as a **reproducible reference pipeline + artifact contract**.  
-It is **not yet** a claim of new physics, experimental reproduction, or probe-agnostic inversion.
+Spec-driven, schema-stable pipeline for extracting, representing, and comparing
+vortex / clock topological defects in 2D spin systems (XY, q=6 clock, and
+synthetic map-mode inputs).
 
 ---
 
-## What this is
+## What this repository contains
 
-This repo currently provides:
-
-- **Reference implementations** for:
-  - 2D XY Metropolis simulation (Numba)
-  - q=6 clock Metropolis simulation (Numba)
-  - plaquette-based vortex extraction
-  - Hungarian min-cost vortex/antivortex pairing with `r_max` policy
-  - core observables and summary outputs
-- A **schema-defined token layer**:
-  - `vortex`
-  - `pair`
-  - `sweep_delta`
-- A **CLI workflow** for:
-  - `reproduce`
-  - `sweep`
-  - `validate`
-  - `plot`
-- A **synthetic-first map-mode scaffold**:
-  - forward models
-  - explicit adapters
-  - controlled degradation testing
+| Component | Status |
+|-----------|--------|
+| XY / clock6 Monte Carlo simulator (Numba) | ✅ implemented |
+| Vortex extraction (plaquette winding number) | ✅ implemented |
+| Vortex–antivortex pairing (Hungarian, PBC) | ✅ implemented |
+| Schema-validated token event stream (JSONL) | ✅ implemented |
+| Helicity modulus Υ(L,T) | ✅ implemented |
+| Multi-seed confidence aggregation | ✅ implemented |
+| clock6 model-aware summary (clock6_order primary) | ✅ implemented |
+| Synthetic map-mode forward models + adapters | ✅ implemented (synthetic only) |
+| Token-only downstream cross-pipeline benchmark | ✅ implemented |
+| Frozen regression benchmark artifact | ✅ committed in `benchmarks/` |
+| CLI (`reproduce`, `sweep`, `validate`, `plot`, `aggregate`) | ✅ implemented |
+| Real experimental map integration | ❌ not implemented |
 
 ---
 
-## What this is not
+## Token schema
 
-This repo does **not** currently claim:
+All pipeline outputs conform to `schemas/topology_event_stream.schema.json` (v1.1.0).
 
-- a new physical law, phase-discovery method, or novel simulator
-- reproduction of any specific experimental dataset end-to-end
-- a general-purpose image inversion tool
-- proof that the event-stream abstraction is already superior to raw-field workflows in all settings
+Three token types:
 
-Map-mode remains **adapter-explicit** and **synthetic-first**.
-
----
-
-## Current status
-
-### Implemented and test-covered
-- XY simulator
-- q=6 clock simulator
-- vortex extraction
-- Hungarian pairing
-- helicity modulus
-- clock-model metrics
-- schema validation helpers
-- CLI (`reproduce`, `sweep`, `validate`, `plot`)
-- synthetic map forward/adapters
-- determinism and schema-validation tests
-
-### Implemented but still methodologically incomplete
-- `vortex.confidence` field exists in the schema
-- current extractor uses a **single-run default** confidence value
-- multi-seed / re-detection confidence aggregation is **not yet wired**
-
-### Important limitations
-- the event-stream layer is implemented, but its **material advantage** over ordinary raw-field outputs is **not yet demonstrated**
-- clock6 summaries should use a **clock-specific order observable** as the primary summary, rather than presenting `|ψ₆|` as the main signal
-- packaging metadata should be aligned with runtime reality for CLI/plot dependencies
-
----
-
-## Why the token stream exists
-
-The point of the token stream is **not** to replace raw fields.
-
-The point is to provide a **stable interchange layer** for downstream tasks that need:
-- cross-pipeline interoperability
-- compact defect-level analytics
-- reproducible benchmarking
-- map/simulation comparison without assuming identical raw inputs
-
-The key question this repo is trying to answer is:
-
-> Can topological defects be represented in a way that is portable across simulation outputs and constrained map-like inputs, without forcing every downstream tool to re-interpret raw arrays?
-
-That question is only **partially answered** today:
-- the representation exists
-- the validation exists
-- the proof of downstream advantage still needs to be shown
-
----
-
-## Repository layout
-
-| Path | Description |
-|------|-------------|
-| `docs/` | Locked specifications for inputs, algorithms, formulae, metrics, UQ, validation |
-| `schemas/` | JSON schema for token outputs |
-| `agents/` | Handoff contracts and gate ordering |
-| `configs/` | Example reproduction config(s) |
-| `src/topostream/simulate/` | XY and q=6 clock simulation |
-| `src/topostream/extract/` | Vortex extraction and pairing |
-| `src/topostream/metrics/` | Helicity, clock metrics, regime helpers |
-| `src/topostream/map/` | Synthetic forward models and adapters |
-| `src/topostream/io/` | Schema validation helpers |
-| `tests/` | Gate tests and validation tests |
-| `results/` | Run outputs (gitignored) |
-
----
-
-## Installation
-
-### Base install
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # mac / linux
-# .venv\Scripts\Activate.ps1      # windows powershell
-
-python -m pip install -U pip
-python -m pip install -e .
+```
+vortex      {id, x, y, charge (+1/-1), strength, confidence}
+pair        {pair_id, vortex_id, antivortex_id, separation_r, r_max_used}
+sweep_delta {delta_type, T_from, T_to, delta_value}
 ```
 
-### CLI config support
-
-The CLI reads YAML configs, so install:
-
-```bash
-python -m pip install pyyaml
-```
-
-### Plotting support
-
-Plot generation requires:
-
-```bash
-python -m pip install matplotlib
-```
-
-If `matplotlib` is absent, the `plot` subcommand is skipped gracefully.
+Every token carries a `provenance` block: model, L, T, seed, sweep_index, schema_version.
+Tokens are written to JSONL files, one token per line.
 
 ---
 
 ## Quick start
 
-### Run tests
-
 ```bash
-python -m pytest -q
-```
+pip install -e .                        # installs numpy, scipy, numba, jsonschema, pyyaml
+pip install -e '.[plot]'                # also installs matplotlib for the plot command
 
-### Run one sweep
-
-```bash
+# Single sweep
 python -m topostream.cli sweep --model XY --L 16 --T 0.9 --seed 42
-```
 
-### Run full reproduce config
-
-```bash
+# Full reproduce run (uses configs/default.yaml)
 python -m topostream.cli reproduce --config configs/default.yaml
-```
 
-### Validate all emitted tokens
-
-```bash
+# Validate all tokens in results/
 python -m topostream.cli validate --results-dir results/
+
+# Plot summaries
+python -m topostream.cli plot --results-dir results/ --output figures/
+
+# Multi-seed aggregation
+python -m topostream.cli aggregate --results-dir results/
+
+# Frozen benchmark check
+make benchmark-check
 ```
 
-### Generate figures from summaries
+---
+
+## Dependencies
+
+| Package | Role | Required |
+|---------|------|----------|
+| numpy | arrays | ✅ core |
+| scipy | Hungarian assignment, Gaussian blur | ✅ core |
+| numba | JIT-compiled MC | ✅ core |
+| jsonschema | token schema validation | ✅ core |
+| pyyaml | CLI config loading | ✅ core |
+| matplotlib | `plot` sub-command | optional (`pip install 'topostream[plot]'`) |
+
+---
+
+## Key design choices
+
+### Primary BKT observable: helicity modulus
+
+Υ(L,T) is computed as a required metric for every sweep.
+`psi6_mag` is retained as a diagnostic field in all summaries but is not
+treated as the primary order parameter.
+
+### Model-aware summary contract
+
+Every `summary_*.json` file includes:
+- `primary_order_name`: `"clock6_order"` for clock6, `"psi6_mag"` for XY
+- `primary_order_value`: the value of that observable
+- `psi6_mag`: always present as a diagnostic field
+
+For clock6: `clock6_order` (population-concentration metric) is the meaningful
+discriminant. `|ψ₆|` is algebraically near-1 for all discrete clock configs and
+does not discriminate temperature — this is documented and not used as the primary.
+
+### Pairing semantics
+
+Hungarian min-cost bipartite matching with cutoff `r_max = L/4` (default).
+Periodic boundary conditions via minimum-image distance.
+`f_paired = (2 × n_pairs) / n_defects`.
+
+### Multi-seed confidence aggregation
+
+For each `(model, L, T)` condition, detection stability is computed across seeds
+via cross-seed vortex clustering. Per-vortex confidence reflects how consistently
+the vortex appears across independent seeds. Single-seed runs emit `confidence=1.0`
+(documented as a placeholder, not a calibrated value).
+
+### Map-mode
+
+Map-mode is **synthetic-first only**. The pipeline includes:
+- `forward_models.py`: theta → vector map, then blur / noise / masking
+- `adapters.py`: vector map → theta (arctan2 inversion)
+
+No real experimental map integration exists. The map-mode path is used only
+to test that the token schema and downstream consumer are producer-agnostic.
+
+### Token-only downstream benchmark
+
+`src/topostream/analysis/token_benchmark.py` demonstrates producer-agnostic
+downstream analysis: the same consumer compares simulation and degraded
+map-mode outputs using only JSONL token files — never raw spin fields.
 
 ```bash
-python -m topostream.cli plot --results-dir results/ --output figures/
+python scripts/run_token_benchmark.py
+# results in results/token_benchmark/benchmark_results.json
+```
+
+What this proves: a single token-based downstream analysis can compare outputs
+from both simulation and synthetic map-like producers without custom raw-data
+logic for each producer.
+
+What this does not prove: compatibility with real experimental data formats,
+calibrated confidence across producers, or optimality of the matching heuristic.
+
+### Frozen benchmark
+
+`benchmarks/stage1_xy_single_sweep/frozen/` contains committed reference outputs
+for a fixed XY run (L=16, T=0.9, seed=42). These are regression anchors, not
+publication benchmarks.
+
+```
+benchmarks/stage1_xy_single_sweep/frozen/
+  sim_XY_16x16_T0.9000_seed0042.npy
+  tokens_XY_16x16_T0.9000_seed0042.jsonl
+  summary_XY_16x16_T0.9000_seed0042.json
 ```
 
 ---
 
-## Outputs
-
-### Canonical token schema
-
-Defined in:
+## Repository layout
 
 ```
-schemas/topology_event_stream.schema.json
+src/topostream/
+  simulate/       xy_numba.py, clock6_numba.py
+  extract/        vortices.py, pairing.py
+  metrics/        clock.py (psi6, clock6_order, helicity)
+  aggregate/      confidence.py (multi-seed cross-seed clustering)
+  map/            forward_models.py, adapters.py
+  analysis/       token_benchmark.py (token-only downstream consumer)
+  io/             schema_validate.py
+  cli.py
+
+benchmarks/stage1_xy_single_sweep/   frozen outputs + run_benchmark.py
+schemas/                              topology_event_stream.schema.json
+docs/                                 spec documents
+configs/                              default.yaml
+scripts/                              run_token_benchmark.py, physics_sanity_audit.py
+tests/                                pytest suite (336 tests)
 ```
 
-### Token types
+---
 
-#### `vortex`
+## Running tests
 
-```json
-{ "id": "...", "x": 0, "y": 0, "charge": 1, "strength": 0.0, "confidence": 1.0 }
+```bash
+pytest tests/ -q
 ```
 
-#### `pair`
-
-```json
-{ "pair_id": "...", "vortex_id": "...", "antivortex_id": "...", "separation_r": 0.0, "r_max_used": 0.0 }
-```
-
-#### `sweep_delta`
-
-- Derived deltas between consecutive temperature-indexed snapshots
-- **Not** physical-time dynamics
-
-### Token requirements
-
-All tokens must:
-- validate against the schema
-- include provenance
-- be reproducible from the same seed + parameters
+Expected: all tests pass except `test_load_default_config` if PyYAML is not
+installed in the environment (the test calls `_load_config` on
+`configs/default.yaml`; install `pyyaml` to fix it).
 
 ---
 
-## Reproducibility stance
+## What this is not
 
-This repo is organized as a research artifact:
-
-- specs are explicit
-- outputs are schema-validated
-- seeds are recorded
-- tests enforce determinism and contract behavior
-
-**What is still missing** is the next step:
-- a frozen benchmark artifact
-- real multi-seed confidence aggregation
-- a downstream demonstration that consumes tokens directly and shows why the token layer matters
-
----
-
-## Strongest honest positioning
-
-> Today, **topostream** is best described as: a reproducible, schema-driven reference pipeline for XY / q=6 topological-defect workflows, with a portable token layer and synthetic-first map-mode scaffolding — but without a completed proof yet that the token abstraction materially outperforms ordinary raw-field workflows.
-
----
-
-## Collaboration stance
-
-This repository is designed to be readable by:
-- technical reviewers
-- future collaborators
-- researchers who want a reproducible contract around defect extraction outputs
-
-The best near-term collaboration target is **not** "new physics claims."  
-It is:
-- interoperability
-- robustness benchmarking
-- defect-level comparison across heterogeneous producers
-
----
-
-## Immediate priorities
-
-1. Remove package / README / output drift
-2. Implement real multi-seed token confidence
-3. Freeze one benchmark bundle
-4. Add one downstream token-only analysis that proves the abstraction earns its keep
-
----
-
-*Last updated: 2026-03-05*
+- Not a machine-learning phase classifier.
+- Not a general-purpose Monte Carlo library.
+- Not an attempt to reproduce any specific experimental paper.
+- Map-mode does not connect to real experimental data; the adapter layer
+  is synthetic-only and its domain of validity is documented but narrow.

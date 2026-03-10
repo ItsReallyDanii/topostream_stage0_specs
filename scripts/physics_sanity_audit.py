@@ -130,7 +130,7 @@ def _diagnose_single(
 
     # --- Vortex density ---
     prov = {"model": model, "L": L, "T": T, "seed": seed,
-            "sweep_index": 0, "schema_version": "1.0.0"}
+            "sweep_index": 0, "schema_version": "1.1.0"}
     vortex_tokens = extract_vortices(cfg, prov)
     n_vortices = len(vortex_tokens)
     rho = n_vortices / (L * L)
@@ -278,7 +278,7 @@ def _run_map_mode_diagnostics() -> None:
     _L = 16
     _SEED = 42
     _prov = lambda m: {"model": m, "L": _L, "T": 1.0, "seed": _SEED,
-                        "sweep_index": 0, "schema_version": "1.0.0"}
+                        "sweep_index": 0, "schema_version": "1.1.0"}
 
     profiles = [
         ("clean",        dict(blur=0.0, noise=0.00, nan_f=0.00)),

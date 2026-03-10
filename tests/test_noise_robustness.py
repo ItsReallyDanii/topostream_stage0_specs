@@ -40,7 +40,7 @@ def _prov(L: int = 16, T: float = 0.5, seed: int = 42, sweep_index: int = 0) -> 
         "T": T,
         "seed": seed,
         "sweep_index": sweep_index,
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
     }
 
 
